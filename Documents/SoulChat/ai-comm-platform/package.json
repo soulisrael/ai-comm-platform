@@ -11,7 +11,9 @@
     "test:run": "vitest run",
     "chat": "tsx scripts/test-agent-cli.ts",
     "db:migrate": "tsx scripts/migrate-db.ts",
-    "db:seed": "tsx scripts/seed-db.ts"
+    "db:seed": "tsx scripts/seed-db.ts",
+    "test:whatsapp": "tsx scripts/test-whatsapp.ts",
+    "setup:webhooks": "tsx scripts/setup-webhooks.ts"
   },
   "keywords": [],
   "author": "",
@@ -29,6 +31,7 @@
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^10.0.0",
+    "axios": "^1.13.5",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",

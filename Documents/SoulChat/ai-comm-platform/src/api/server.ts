@@ -26,6 +26,10 @@ import { createContactsRouter } from './routes/contacts';
 import { createBrainRouter } from './routes/brain';
 import { createAnalyticsRouter } from './routes/analytics';
 import { createWebhooksRouter } from './routes/webhooks';
+import { ChannelManager } from '../channels/channel-manager';
+import { WhatsAppAdapter } from '../channels/whatsapp-adapter';
+import { InstagramAdapter } from '../channels/instagram-adapter';
+import { TelegramAdapter } from '../channels/telegram-adapter';
 import logger from '../services/logger';
 
 dotenv.config();
@@ -91,6 +95,18 @@ export async function createApp(options?: {
   const contactManager = new ContactManager(contactStore);
   const engine = new ConversationEngine(orchestrator, conversationManager, contactManager);
 
+  // Initialize channel adapters
+  const channelManager = new ChannelManager();
+  if (process.env.WHATSAPP_PHONE_ID || process.env.WHATSAPP_TOKEN) {
+    channelManager.registerAdapter(new WhatsAppAdapter());
+  }
+  if (process.env.INSTAGRAM_PAGE_ID || process.env.INSTAGRAM_TOKEN) {
+    channelManager.registerAdapter(new InstagramAdapter());
+  }
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    channelManager.registerAdapter(new TelegramAdapter());
+  }
+
   // Hook message events for Supabase persistence
   if (messageSync) {
     engine.on('message:incoming', ({ message }) => {
@@ -143,12 +159,12 @@ export async function createApp(options?: {
   app.use('/api/contacts', createContactsRouter(engine));
   app.use('/api/brain', createBrainRouter(brainLoader, brainManager, brainSearch));
   app.use('/api/analytics', createAnalyticsRouter(engine));
-  app.use('/api/webhooks', createWebhooksRouter());
+  app.use('/api/webhooks', createWebhooksRouter(channelManager, engine));
 
   // Error handler (must be last)
   app.use(errorHandler);
 
-  return { app, engine, brainLoader, brainManager };
+  return { app, engine, brainLoader, brainManager, channelManager };
 }
 
 // Start server if run directly
