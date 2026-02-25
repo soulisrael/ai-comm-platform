@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { useBrainModules, useBrainModule, useBrainAgents, useBrainCompany, useBrainActions } from '../hooks/useBrain';
+import { useState, useRef, useCallback } from 'react';
+import { useBrainModules, useBrainModule, useBrainAgents, useBrainCompany, useBrainActions, useDocxUpload } from '../hooks/useBrain';
 import { PageLoading } from '../components/LoadingSpinner';
 import { EmptyState } from '../components/EmptyState';
 import { AgentBadge } from '../components/AgentBadge';
-import { RefreshCw, ChevronRight, Save, Database, Bot, Building2, ArrowLeft } from 'lucide-react';
+import { RefreshCw, ChevronRight, Save, Database, Bot, Building2, ArrowLeft, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export function Brain() {
@@ -49,6 +49,9 @@ export function Brain() {
           Reload All Brain Data
         </button>
       </div>
+
+      {/* Document Upload */}
+      <DocxUploadSection />
 
       {/* Agent Configs */}
       {agentsData && (
@@ -125,6 +128,167 @@ export function Brain() {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+type UploadState = 'idle' | 'uploading' | 'preview' | 'saving' | 'done';
+
+function DocxUploadSection() {
+  const [state, setState] = useState<UploadState>('idle');
+  const [file, setFile] = useState<File | null>(null);
+  const [category, setCategory] = useState<string>('sales');
+  const [moduleName, setModuleName] = useState('');
+  const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { preview, confirm } = useDocxUpload();
+
+  const handleFile = useCallback((f: File) => {
+    if (!f.name.endsWith('.docx')) {
+      toast.error('Only .docx files are supported');
+      return;
+    }
+    setFile(f);
+    setPreviewData(null);
+    setState('idle');
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  }, [handleFile]);
+
+  const handlePreview = async () => {
+    if (!file) return;
+    setState('uploading');
+    try {
+      const result = await preview.mutateAsync({ file, category, moduleName: moduleName || undefined });
+      setPreviewData(result.convertedData);
+      setState('preview');
+    } catch {
+      toast.error('Failed to convert document');
+      setState('idle');
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!file) return;
+    setState('saving');
+    try {
+      await confirm.mutateAsync({ file, category, moduleName: moduleName || undefined });
+      toast.success('Document uploaded to brain');
+      setState('done');
+      setTimeout(() => {
+        setState('idle');
+        setFile(null);
+        setPreviewData(null);
+        setModuleName('');
+      }, 2000);
+    } catch {
+      toast.error('Failed to save document');
+      setState('preview');
+    }
+  };
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1">
+        <Upload size={14} /> Upload Document
+      </h2>
+      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        {/* Drop zone */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+            dragOver ? 'border-primary-400 bg-primary-50' : 'border-gray-300 hover:border-gray-400'
+          }`}
+        >
+          <Upload size={24} className="mx-auto text-gray-400 mb-2" />
+          <p className="text-sm text-gray-600">
+            {file ? file.name : 'Drag & drop a .docx file or click to browse'}
+          </p>
+          {file && <p className="text-xs text-gray-400 mt-1">{(file.size / 1024).toFixed(1)} KB</p>}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".docx"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleFile(f);
+            }}
+          />
+        </div>
+
+        {/* Options row */}
+        <div className="flex gap-3 items-end">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="sales">Sales</option>
+              <option value="support">Support</option>
+              <option value="company">Company</option>
+            </select>
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Module name (optional)</label>
+            <input
+              type="text"
+              value={moduleName}
+              onChange={(e) => setModuleName(e.target.value)}
+              placeholder="auto-generated from filename"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+          <button
+            onClick={handlePreview}
+            disabled={!file || state === 'uploading' || state === 'saving'}
+            className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50"
+          >
+            {state === 'uploading' ? 'Converting...' : 'Preview'}
+          </button>
+        </div>
+
+        {/* Preview JSON */}
+        {state === 'preview' && previewData && (
+          <div className="space-y-3">
+            <pre className="max-h-[40vh] overflow-auto p-4 text-sm font-mono bg-gray-900 text-green-400 rounded-lg">
+              {JSON.stringify(previewData, null, 2)}
+            </pre>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setState('idle'); setPreviewData(null); }}
+                className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirm}
+                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
+              >
+                Confirm & Save to Brain
+              </button>
+            </div>
+          </div>
+        )}
+
+        {state === 'saving' && (
+          <p className="text-sm text-gray-500 text-center">Saving to brain...</p>
+        )}
+        {state === 'done' && (
+          <p className="text-sm text-green-600 text-center font-medium">Document saved successfully!</p>
+        )}
       </div>
     </div>
   );

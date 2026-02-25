@@ -56,6 +56,26 @@ class ApiClient {
   delete<T>(path: string) {
     return this.request<T>(path, { method: 'DELETE' });
   }
+
+  async postFormData<T>(path: string, formData: FormData): Promise<T> {
+    const headers: Record<string, string> = {};
+    if (this.apiKey) {
+      headers['x-api-key'] = this.apiKey;
+    }
+    // Do NOT set Content-Type — browser sets multipart boundary automatically
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new ApiError(res.status, body.error || res.statusText, body.code);
+    }
+
+    return res.json();
+  }
 }
 
 export class ApiError extends Error {

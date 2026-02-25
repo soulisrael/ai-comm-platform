@@ -37,6 +37,52 @@ export function useBrainCompany() {
   });
 }
 
+interface UploadPreviewResult {
+  preview: true;
+  moduleName: string;
+  category: string;
+  convertedData: Record<string, unknown>;
+  extractedText: string;
+  tokenUsage: { inputTokens: number; outputTokens: number };
+}
+
+interface UploadConfirmResult {
+  success: true;
+  moduleName: string;
+  category: string;
+  module: string;
+  tokenUsage: { inputTokens: number; outputTokens: number };
+}
+
+export function useDocxUpload() {
+  const qc = useQueryClient();
+
+  const preview = useMutation({
+    mutationFn: ({ file, category, moduleName }: { file: File; category: string; moduleName?: string }) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('category', category);
+      fd.append('preview', 'true');
+      if (moduleName) fd.append('moduleName', moduleName);
+      return api.postFormData<UploadPreviewResult>('/api/brain/upload', fd);
+    },
+  });
+
+  const confirm = useMutation({
+    mutationFn: ({ file, category, moduleName }: { file: File; category: string; moduleName?: string }) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('category', category);
+      fd.append('preview', 'false');
+      if (moduleName) fd.append('moduleName', moduleName);
+      return api.postFormData<UploadConfirmResult>('/api/brain/upload', fd);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['brain'] }),
+  });
+
+  return { preview, confirm };
+}
+
 export function useBrainActions() {
   const qc = useQueryClient();
 

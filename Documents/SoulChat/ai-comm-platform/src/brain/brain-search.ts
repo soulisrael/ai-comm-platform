@@ -122,8 +122,10 @@ export class BrainSearch {
     }
 
     // Agent-specific brain data
+    let agentCategory: BrainCategory | null = null;
     switch (agentType) {
       case 'sales': {
+        agentCategory = 'sales';
         const products = this.loader.getEntry('sales', 'products');
         const pricing = this.loader.getEntry('sales', 'pricing-rules');
         const objections = this.loader.getEntry('sales', 'objection-handling');
@@ -137,6 +139,7 @@ export class BrainSearch {
         break;
       }
       case 'support': {
+        agentCategory = 'support';
         const faq = this.loader.getEntry('support', 'faq');
         const policies = this.loader.getEntry('support', 'policies');
         const troubleshooting = this.loader.getEntry('support', 'troubleshooting');
@@ -168,6 +171,16 @@ export class BrainSearch {
       }
     }
 
+    // Inject uploaded modules for the agent's category + company (general knowledge)
+    const uploadCategories = new Set<BrainCategory>(['company']);
+    if (agentCategory) uploadCategories.add(agentCategory);
+    for (const cat of uploadCategories) {
+      for (const entry of this.getUploadedModules(cat)) {
+        const key = entry.subcategory.replace(/-/g, '_');
+        result[key] = entry.data;
+      }
+    }
+
     // Search for keyword-relevant data from the message
     const messageKeywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 2);
     const faqResults = this.searchFAQ(message);
@@ -177,6 +190,11 @@ export class BrainSearch {
 
     logger.debug('Found relevant brain data', { agentType, keys: Object.keys(result) });
     return result;
+  }
+
+  private getUploadedModules(category: BrainCategory): BrainEntry[] {
+    const entries = this.loader.getData().get(category) || [];
+    return entries.filter(e => e.subcategory.startsWith('uploaded-'));
   }
 
   private calculateRelevance(entry: BrainEntry, keywords: string[]): number {

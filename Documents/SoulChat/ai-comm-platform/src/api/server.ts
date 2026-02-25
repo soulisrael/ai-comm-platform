@@ -27,6 +27,8 @@ import { createBrainRouter } from './routes/brain';
 import { createAnalyticsRouter } from './routes/analytics';
 import { createWebhooksRouter } from './routes/webhooks';
 import { createAutomationRouter } from './routes/automation';
+import { createUploadRouter } from './routes/upload';
+import { DocxConverter } from '../services/docx-converter';
 import { FlowEngine } from '../automation/flow-engine';
 import { TriggerManager } from '../automation/triggers/trigger-manager';
 import { BroadcastManager } from '../automation/broadcast';
@@ -193,11 +195,17 @@ export async function createApp(options?: {
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
 
+  // Initialize document converter
+  const docxConverter = claude ? new DocxConverter(claude, brainLoader) : null;
+
   // API Routes
   app.use('/api/messages', createMessagesRouter(engine));
   app.use('/api/conversations', createConversationsRouter(engine));
   app.use('/api/contacts', createContactsRouter(engine));
   app.use('/api/brain', createBrainRouter(brainLoader, brainManager, brainSearch));
+  if (docxConverter) {
+    app.use('/api/brain/upload', createUploadRouter(docxConverter, brainManager, brainLoader));
+  }
   app.use('/api/analytics', createAnalyticsRouter(engine));
   app.use('/api/webhooks', createWebhooksRouter(channelManager, engine));
   app.use('/api/automation', createAutomationRouter({ flowEngine, broadcastManager, templateManager, triggerManager }));
