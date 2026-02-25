@@ -28,10 +28,12 @@ const upload = multer({
 const validCategories: BrainCategory[] = ['sales', 'support', 'company'];
 
 function toKebabCase(str: string): string {
-  return str
+  const result = str
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+  // Fallback for non-Latin filenames (Hebrew, Arabic, etc.)
+  return result || `doc-${Date.now()}`;
 }
 
 export function createUploadRouter(
