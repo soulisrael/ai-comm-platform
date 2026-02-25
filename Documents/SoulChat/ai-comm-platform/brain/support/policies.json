@@ -1,0 +1,17 @@
+{
+  "returnPolicy": {
+    "daysAllowed": 30,
+    "conditions": ["unused", "original packaging"],
+    "process": "Contact support with order number → Receive return label → Ship item → Refund within 5 business days"
+  },
+  "shippingPolicy": {
+    "standard": { "days": "3-5", "cost": "Free over $100" },
+    "express": { "days": "1-2", "cost": "$15" }
+  },
+  "privacyPolicy": "We never share customer data with third parties.",
+  "warrantyPolicy": {
+    "duration": "1 year",
+    "coverage": "Manufacturing defects",
+    "exclusions": ["Physical damage", "Water damage"]
+  }
+}

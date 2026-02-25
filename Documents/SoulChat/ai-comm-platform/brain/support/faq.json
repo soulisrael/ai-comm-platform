@@ -1,0 +1,25 @@
+{
+  "faqs": [
+    {
+      "id": "faq-001",
+      "question": "What are your working hours?",
+      "answer": "We're available {workingHours}. Feel free to message us anytime and we'll get back to you!",
+      "keywords": ["hours", "open", "available", "when", "time"],
+      "category": "general"
+    },
+    {
+      "id": "faq-002",
+      "question": "What is your return policy?",
+      "answer": "We offer a 30-day return policy for unused items. Please contact us with your order number to start a return.",
+      "keywords": ["return", "refund", "money back", "exchange"],
+      "category": "policy"
+    },
+    {
+      "id": "faq-003",
+      "question": "How long does shipping take?",
+      "answer": "Standard shipping takes 3-5 business days. Express shipping is available for 1-2 business days delivery.",
+      "keywords": ["shipping", "delivery", "how long", "arrive", "ship"],
+      "category": "shipping"
+    }
+  ]
+}

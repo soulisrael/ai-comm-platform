@@ -1,0 +1,12 @@
+{
+  "agents": [
+    {
+      "id": "agent-1",
+      "name": "REPLACE",
+      "role": "manager",
+      "email": "",
+      "availableHours": { "start": "09:00", "end": "18:00" },
+      "specialties": ["escalations", "refunds"]
+    }
+  ]
+}

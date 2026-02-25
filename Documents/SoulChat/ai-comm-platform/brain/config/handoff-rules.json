@@ -1,0 +1,11 @@
+{
+  "triggers": {
+    "lowConfidence": { "threshold": 0.4, "action": "handoff" },
+    "negativeSentiment": { "consecutiveMessages": 3, "action": "handoff" },
+    "explicitRequest": { "keywords": ["human", "person", "agent", "manager", "representative"], "action": "handoff" },
+    "maxAITurns": { "count": 15, "action": "suggest_handoff" },
+    "unresolved": { "afterMinutes": 10, "action": "suggest_handoff" }
+  },
+  "handoffMessage": "I'm connecting you with a team member who can help further. They'll have our full conversation history. Please hold on! 🙏",
+  "queueMessage": "All our team members are currently busy. You're #{position} in queue. Estimated wait: {waitTime} minutes."
+}

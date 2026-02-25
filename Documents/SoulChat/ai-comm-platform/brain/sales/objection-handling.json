@@ -1,0 +1,22 @@
+{
+  "objections": [
+    {
+      "objection": "too expensive",
+      "keywords": ["expensive", "costly", "price", "cheaper", "budget", "afford"],
+      "response": "I understand budget is important. Let me show you the value you're getting: {product_features}. We also have a {discount_name} available right now!",
+      "strategy": "value_reframe"
+    },
+    {
+      "objection": "need to think about it",
+      "keywords": ["think about it", "not sure", "maybe later", "consider"],
+      "response": "Of course, take your time! Just so you know, {urgency_reason}. Can I answer any specific questions that might help with your decision?",
+      "strategy": "soft_urgency"
+    },
+    {
+      "objection": "found cheaper elsewhere",
+      "keywords": ["cheaper elsewhere", "competitor", "other option", "found better"],
+      "response": "Thanks for letting me know! What we offer differently is {differentiator}. Would you like me to break down what's included?",
+      "strategy": "differentiate"
+    }
+  ]
+}

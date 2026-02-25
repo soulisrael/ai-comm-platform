@@ -1,0 +1,22 @@
+{
+  "companyName": "REPLACE_WITH_YOUR_COMPANY",
+  "description": "REPLACE_WITH_DESCRIPTION",
+  "website": "https://example.com",
+  "phone": "+1234567890",
+  "email": "info@example.com",
+  "workingHours": {
+    "sunday": { "open": "09:00", "close": "18:00" },
+    "monday": { "open": "09:00", "close": "18:00" },
+    "tuesday": { "open": "09:00", "close": "18:00" },
+    "wednesday": { "open": "09:00", "close": "18:00" },
+    "thursday": { "open": "09:00", "close": "18:00" },
+    "friday": { "open": "09:00", "close": "14:00" },
+    "saturday": "closed"
+  },
+  "address": "REPLACE_WITH_ADDRESS",
+  "socialMedia": {
+    "instagram": "",
+    "facebook": "",
+    "whatsapp": ""
+  }
+}

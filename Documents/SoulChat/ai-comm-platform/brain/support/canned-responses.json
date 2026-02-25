@@ -1,0 +1,11 @@
+{
+  "responses": {
+    "greeting": "Hi {name}! How can I help you today?",
+    "ask_order_number": "Could you please share your order number so I can look into this for you?",
+    "transferring": "I'm going to connect you with a team member who can help with this. One moment please! 🙏",
+    "outside_hours": "Thanks for your message! We're currently outside business hours ({hours}). We'll get back to you first thing tomorrow!",
+    "thank_you": "Thank you for contacting us! Have a great day! 😊",
+    "apologize": "I'm sorry for the inconvenience. Let me help you resolve this right away.",
+    "confirm_action": "Done! ✅ {action_description}. Is there anything else I can help with?"
+  }
+}

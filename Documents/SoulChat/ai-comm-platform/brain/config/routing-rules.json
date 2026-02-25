@@ -1,0 +1,21 @@
+{
+  "rules": [
+    {
+      "keywords": ["buy", "price", "cost", "product", "order", "purchase", "catalog", "available", "stock", "deal", "discount", "offer"],
+      "intent": "sales",
+      "priority": 1
+    },
+    {
+      "keywords": ["help", "issue", "problem", "broken", "refund", "return", "complaint", "wrong", "damaged", "missing", "tracking"],
+      "intent": "support",
+      "priority": 1
+    },
+    {
+      "keywords": ["book", "appointment", "schedule", "calendar", "meeting", "available time", "slot", "reschedule", "cancel appointment"],
+      "intent": "appointment",
+      "priority": 1
+    }
+  ],
+  "defaultIntent": "support",
+  "confidenceThreshold": 0.6
+}
