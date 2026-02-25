@@ -1,3 +1,6 @@
+// DEPRECATED: Replaced by AgentRunner + custom agents (see agent-runner.ts)
+// This file is kept for reference only and will be removed in a future version.
+
 import { BaseAgent } from './base-agent';
 import { AgentResponse } from '../types/agent';
 import { Conversation } from '../types/conversation';

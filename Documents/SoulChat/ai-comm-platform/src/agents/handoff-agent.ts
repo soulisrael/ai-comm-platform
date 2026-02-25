@@ -12,6 +12,7 @@ interface HandoffSummary {
   keyMessages: string[];
   conversationLength: number;
   channel: string;
+  customAgentName?: string;
 }
 
 export class HandoffAgent extends BaseAgent {
@@ -43,17 +44,17 @@ export class HandoffAgent extends BaseAgent {
 
     if (availability.available) {
       customerMessage = handoffRules?.handoffMessage ||
-        "I'm connecting you with a team member who can help further. They'll have our full conversation history. Please hold on!";
+        'אני מחבר אותך עם נציג שיוכל לעזור. הוא יקבל את כל ההיסטוריה של השיחה שלנו. רגע אחד!';
     } else {
       const queueMsg = handoffRules?.queueMessage ||
-        "All our team members are currently busy. You're #{position} in queue. Estimated wait: {waitTime} minutes.";
+        'כל הנציגים שלנו תפוסים כרגע. אתה מספר #{position} בתור. זמן המתנה משוער: {waitTime} דקות.';
       customerMessage = queueMsg
         .replace('#{position}', String(availability.queuePosition))
         .replace('{position}', String(availability.queuePosition))
         .replace('{waitTime}', String(availability.estimatedWait));
     }
 
-    this.log('info', `Handoff summary generated: issue=${summary.issueType}, sentiment=${summary.sentiment}, messages=${summary.conversationLength}`);
+    this.log('info', `Handoff summary: issue=${summary.issueType}, sentiment=${summary.sentiment}, agent=${summary.customAgentName || 'legacy'}, messages=${summary.conversationLength}`);
 
     return {
       message: customerMessage,
@@ -72,14 +73,15 @@ export class HandoffAgent extends BaseAgent {
     let issueType = conversation.context.intent || 'unknown';
     const allContent = inboundMessages.map(m => m.content.toLowerCase()).join(' ');
 
-    if (allContent.includes('refund') || allContent.includes('return')) issueType = 'refund_request';
-    else if (allContent.includes('broken') || allContent.includes('not working')) issueType = 'technical_issue';
-    else if (allContent.includes('order') || allContent.includes('tracking')) issueType = 'order_issue';
-    else if (allContent.includes('complaint')) issueType = 'complaint';
+    // Hebrew + English issue detection
+    if (allContent.includes('החזר') || allContent.includes('refund') || allContent.includes('return')) issueType = 'refund_request';
+    else if (allContent.includes('לא עובד') || allContent.includes('broken') || allContent.includes('not working') || allContent.includes('תקלה')) issueType = 'technical_issue';
+    else if (allContent.includes('הזמנה') || allContent.includes('order') || allContent.includes('tracking') || allContent.includes('משלוח')) issueType = 'order_issue';
+    else if (allContent.includes('תלונה') || allContent.includes('complaint')) issueType = 'complaint';
 
-    // Determine sentiment
+    // Determine sentiment (Hebrew + English)
     let sentiment = conversation.context.sentiment || 'neutral';
-    const frustrationWords = ['angry', 'furious', 'terrible', 'worst', 'horrible', 'unacceptable'];
+    const frustrationWords = ['כועס', 'עצבני', 'נמאס', 'גרוע', 'מזעזע', 'angry', 'furious', 'terrible', 'worst', 'horrible', 'unacceptable'];
     if (frustrationWords.some(w => allContent.includes(w))) sentiment = 'very_negative';
 
     // Extract attempted solutions from bot responses
@@ -93,12 +95,16 @@ export class HandoffAgent extends BaseAgent {
       .slice(-5)
       .map(m => m.content.slice(0, 150));
 
-    // Infer customer name from first message or context
+    // Infer customer name from messages (Hebrew + English)
     let customerName: string | null = null;
     for (const msg of inboundMessages) {
-      const nameMatch = msg.content.match(/(?:my name is|i'm|i am)\s+([A-Z][a-z]+)/i);
+      const nameMatch = msg.content.match(/(?:my name is|i'm|i am|שמי|קוראים לי)\s+([A-Za-z\u0590-\u05FF]+)/i);
       if (nameMatch) { customerName = nameMatch[1]; break; }
     }
+
+    // Get custom agent name from metadata
+    const lastOutbound = outboundMessages[outboundMessages.length - 1];
+    const customAgentName = lastOutbound?.metadata?.customAgentName as string | undefined;
 
     return {
       customerName,
@@ -108,12 +114,12 @@ export class HandoffAgent extends BaseAgent {
       keyMessages,
       conversationLength: conversation.messages.length,
       channel: conversation.channel,
+      customAgentName,
     };
   }
 
   checkAgentAvailability(): { available: boolean; queuePosition: number; estimatedWait: number } {
-    // TODO: In Phase 5+, check real agent availability from database
-    // For now, simulate availability
+    // TODO: Check real agent availability from database
     return {
       available: true,
       queuePosition: 0,

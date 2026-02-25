@@ -1,11 +1,14 @@
 import * as readline from 'readline';
 import dotenv from 'dotenv';
+import { createClient } from '@supabase/supabase-js';
 import { ClaudeAPI } from '../src/services/claude-api';
 import { BrainLoader } from '../src/brain/brain-loader';
 import { AgentOrchestrator } from '../src/agents/agent-orchestrator';
 import { ConversationEngine, EngineResult } from '../src/conversation/conversation-engine';
 import { ConversationManager } from '../src/conversation/conversation-manager';
 import { ContactManager } from '../src/conversation/contact-manager';
+import { CustomAgentRepository } from '../src/database/repositories/custom-agent-repository';
+import { TopicRepository } from '../src/database/repositories/topic-repository';
 import { AgentType } from '../src/types/conversation';
 import path from 'path';
 
@@ -32,7 +35,9 @@ async function main() {
   console.log(color('\n🤖 AI Communication Platform — Agent CLI', 'bright'));
   console.log(color('==========================================', 'dim'));
   console.log(color('Commands:', 'cyan'));
-  console.log('  /switch sales|support|trial_meeting — force switch agent');
+  console.log('  /agents — list custom agents');
+  console.log('  /switch <name|id> — switch to a custom agent');
+  console.log('  /topics — show topics for current agent');
   console.log('  /brain products|faq — show brain data');
   console.log('  /history — show conversation history');
   console.log('  /contacts — list all contacts');
@@ -56,7 +61,29 @@ async function main() {
   const brainLoader = new BrainLoader(brainPath);
   brainLoader.loadAll();
 
-  const orchestrator = new AgentOrchestrator(claude, brainLoader);
+  // Initialize repos if Supabase is configured
+  let customAgentRepo: CustomAgentRepository | undefined;
+  let topicRepo: TopicRepository | undefined;
+  let isCustomMode = false;
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+
+  if (supabaseUrl && supabaseKey) {
+    try {
+      const supabase = createClient(supabaseUrl, supabaseKey);
+      customAgentRepo = new CustomAgentRepository(supabase);
+      topicRepo = new TopicRepository(supabase);
+      isCustomMode = true;
+      console.log(color('✅ Supabase connected — custom agent mode enabled', 'green'));
+    } catch (err) {
+      console.log(color('⚠️  Supabase connection failed, using legacy mode', 'yellow'));
+    }
+  } else {
+    console.log(color('ℹ️  No Supabase configured — legacy agent mode', 'dim'));
+  }
+
+  const orchestrator = new AgentOrchestrator(claude, brainLoader, customAgentRepo, topicRepo);
   const conversationManager = new ConversationManager();
   const contactManager = new ContactManager();
   const engine = new ConversationEngine(orchestrator, conversationManager, contactManager);
@@ -74,7 +101,7 @@ async function main() {
     console.log(color(`  ✅ Conversation closed`, 'dim'));
   });
 
-  console.log(color('✅ Brain loaded. Conversation engine ready.\n', 'green'));
+  console.log(color(`✅ Brain loaded. Mode: ${isCustomMode ? 'custom agents' : 'legacy agents'}\n`, 'green'));
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -85,16 +112,23 @@ async function main() {
     const conv = currentConversationId
       ? conversationManager.getConversation(currentConversationId)
       : undefined;
-    const agentLabel = conv?.currentAgent
-      ? color(`[${conv.currentAgent}]`, 'magenta')
-      : color('[new]', 'dim');
+
+    let agentLabel: string;
+    if (isCustomMode && conv?.customAgentId) {
+      agentLabel = color(`[${conv.customAgentId.slice(0, 8)}]`, 'magenta');
+    } else if (conv?.currentAgent) {
+      agentLabel = color(`[${conv.currentAgent}]`, 'magenta');
+    } else {
+      agentLabel = color('[new]', 'dim');
+    }
+
     rl.question(`${agentLabel} ${color('You:', 'green')} `, async (input) => {
       const trimmed = input.trim();
       if (!trimmed) { prompt(); return; }
 
       // Handle commands
       if (trimmed.startsWith('/')) {
-        handleCommand(trimmed);
+        await handleCommand(trimmed);
         prompt();
         return;
       }
@@ -125,26 +159,117 @@ async function main() {
 
   prompt();
 
-  function handleCommand(cmd: string) {
+  async function handleCommand(cmd: string) {
     const parts = cmd.split(' ');
     const command = parts[0];
-    const arg = parts[1];
+    const arg = parts.slice(1).join(' ');
 
     switch (command) {
+      case '/agents': {
+        if (!isCustomMode || !customAgentRepo) {
+          console.log(color('Custom agents not available (no Supabase connection).', 'yellow'));
+          console.log(color('Legacy agents: sales, support, trial_meeting, handoff', 'dim'));
+          return;
+        }
+        try {
+          const agents = await customAgentRepo.getAllWithTopics();
+          console.log(color('\n🤖 Custom Agents:', 'cyan'));
+          for (const agent of agents) {
+            const status = agent.active ? color('active', 'green') : color('inactive', 'red');
+            const defaultTag = agent.isDefault ? color(' (default)', 'yellow') : '';
+            const topicNames = agent.topics.map(t => t.name).join(', ');
+            console.log(`  ${agent.name}${defaultTag} [${status}]`);
+            console.log(color(`    ID: ${agent.id}`, 'dim'));
+            if (agent.routingKeywords.length > 0) {
+              console.log(color(`    Keywords: ${agent.routingKeywords.join(', ')}`, 'dim'));
+            }
+            if (topicNames) {
+              console.log(color(`    Topics: ${topicNames}`, 'dim'));
+            }
+          }
+        } catch (err) {
+          console.error(color(`❌ Error loading agents: ${err}`, 'red'));
+        }
+        break;
+      }
+
       case '/switch': {
         if (!currentConversationId) {
           console.log(color('No active conversation. Send a message first.', 'yellow'));
           return;
         }
-        if (!arg || !['sales', 'support', 'trial_meeting', 'handoff'].includes(arg)) {
-          console.log(color('Usage: /switch sales|support|trial_meeting|handoff', 'yellow'));
+
+        if (!arg) {
+          console.log(color('Usage: /switch <agent-name|agent-id>', 'yellow'));
           return;
         }
+
         const conv = conversationManager.getConversation(currentConversationId);
-        if (conv) {
+        if (!conv) return;
+
+        if (isCustomMode && customAgentRepo) {
+          // Try to find custom agent by name or ID
+          try {
+            const agents = await customAgentRepo.getAllWithTopics();
+            const match = agents.find(
+              a => a.name === arg || a.id === arg || a.id.startsWith(arg)
+            );
+            if (match) {
+              orchestrator.switchCustomAgent(conv, match.id);
+              console.log(color(`✅ Switched to "${match.name}"`, 'green'));
+            } else {
+              console.log(color(`Agent "${arg}" not found. Use /agents to list.`, 'yellow'));
+            }
+          } catch (err) {
+            console.error(color(`❌ Error: ${err}`, 'red'));
+          }
+        } else {
+          // Legacy mode
+          if (!['sales', 'support', 'trial_meeting', 'handoff'].includes(arg)) {
+            console.log(color('Usage: /switch sales|support|trial_meeting|handoff', 'yellow'));
+            return;
+          }
           orchestrator.switchAgent(conv, arg as AgentType);
           conversationManager.updateAgent(currentConversationId, arg as AgentType);
           console.log(color(`✅ Switched to ${arg} agent`, 'green'));
+        }
+        break;
+      }
+
+      case '/topics': {
+        if (!isCustomMode || !customAgentRepo) {
+          console.log(color('Topics are only available in custom agent mode.', 'yellow'));
+          return;
+        }
+        const conv = currentConversationId
+          ? conversationManager.getConversation(currentConversationId)
+          : undefined;
+        const agentId = conv?.customAgentId;
+        if (!agentId) {
+          console.log(color('No agent assigned yet. Send a message first.', 'yellow'));
+          return;
+        }
+        try {
+          const agent = await customAgentRepo.getWithTopics(agentId);
+          if (!agent || agent.topics.length === 0) {
+            console.log(color('No topics found for this agent.', 'yellow'));
+            return;
+          }
+          console.log(color(`\n📚 Topics for "${agent.name}":`, 'cyan'));
+          for (const topic of agent.topics) {
+            console.log(`  ${topic.name}${topic.isShared ? color(' (shared)', 'dim') : ''}`);
+            if (topic.content.description) {
+              console.log(color(`    ${topic.content.description.slice(0, 100)}`, 'dim'));
+            }
+            if (topic.content.schedule) {
+              console.log(color(`    Schedule: ${topic.content.schedule}`, 'dim'));
+            }
+            if (topic.content.price) {
+              console.log(color(`    Price: ${topic.content.price}`, 'dim'));
+            }
+          }
+        } catch (err) {
+          console.error(color(`❌ Error: ${err}`, 'red'));
         }
         break;
       }
@@ -175,12 +300,12 @@ async function main() {
           console.log(color('No messages yet.', 'yellow'));
           return;
         }
-        const conv = conversationManager.getConversation(currentConversationId);
+        const histConv = conversationManager.getConversation(currentConversationId);
         console.log(color('\n📜 Conversation History:', 'cyan'));
         for (const msg of messages) {
           const prefix = msg.direction === 'inbound'
             ? color('  You:', 'green')
-            : color(`  ${conv?.currentAgent || 'Bot'}:`, 'blue');
+            : color(`  ${histConv?.currentAgent || 'Bot'}:`, 'blue');
           console.log(`${prefix} ${msg.content.slice(0, 200)}`);
         }
         break;
@@ -208,7 +333,10 @@ async function main() {
         console.log(color('\n💬 Conversations:', 'cyan'));
         for (const c of convs) {
           const isCurrent = c.id === currentConversationId ? ' ← current' : '';
-          console.log(`  ${c.id}: status=${c.status}, agent=${c.currentAgent || 'none'}, messages=${c.messages.length}, channel=${c.channel}${isCurrent}`);
+          const agentInfo = c.customAgentId
+            ? `customAgent=${c.customAgentId.slice(0, 8)}`
+            : `agent=${c.currentAgent || 'none'}`;
+          console.log(`  ${c.id}: status=${c.status}, ${agentInfo}, messages=${c.messages.length}, channel=${c.channel}${isCurrent}`);
         }
         break;
       }
@@ -218,6 +346,7 @@ async function main() {
         const contacts = contactManager.getAllContacts();
         const usage = claude.getUsage();
         console.log(color('\n📊 Platform Stats:', 'cyan'));
+        console.log(`  Mode:               ${isCustomMode ? 'Custom Agents' : 'Legacy Agents'}`);
         console.log(`  Contacts:           ${contacts.length}`);
         console.log(`  Total conversations: ${stats.total}`);
         console.log(`  Active:             ${stats.active}`);
@@ -258,8 +387,9 @@ async function main() {
 
   function displayResult(result: EngineResult) {
     if (result.routingDecision) {
+      const agentName = result.routingDecision.customAgentName || result.routingDecision.selectedAgent;
       console.log(color(
-        `\n🔀 Routing: ${result.routingDecision.selectedAgent} ` +
+        `\n🔀 Routing: ${agentName} ` +
         `(confidence: ${(result.routingDecision.confidence * 100).toFixed(0)}%)`,
         'yellow'
       ));
