@@ -26,6 +26,11 @@ import { createContactsRouter } from './routes/contacts';
 import { createBrainRouter } from './routes/brain';
 import { createAnalyticsRouter } from './routes/analytics';
 import { createWebhooksRouter } from './routes/webhooks';
+import { createAutomationRouter } from './routes/automation';
+import { FlowEngine } from '../automation/flow-engine';
+import { TriggerManager } from '../automation/triggers/trigger-manager';
+import { BroadcastManager } from '../automation/broadcast';
+import { TemplateManager } from '../automation/template-manager';
 import { ChannelManager } from '../channels/channel-manager';
 import { WhatsAppAdapter } from '../channels/whatsapp-adapter';
 import { InstagramAdapter } from '../channels/instagram-adapter';
@@ -107,6 +112,15 @@ export async function createApp(options?: {
     channelManager.registerAdapter(new TelegramAdapter());
   }
 
+  // Initialize automation engine
+  const flowEngine = new FlowEngine({ channelManager, conversationManager, contactManager });
+  const triggerManager = new TriggerManager(engine, flowEngine);
+  const broadcastManager = new BroadcastManager(channelManager, contactManager);
+  const templateManager = new TemplateManager();
+
+  // Register scheduled flows
+  triggerManager.registerScheduledFlows();
+
   // Hook message events for Supabase persistence
   if (messageSync) {
     engine.on('message:incoming', ({ message }) => {
@@ -160,11 +174,12 @@ export async function createApp(options?: {
   app.use('/api/brain', createBrainRouter(brainLoader, brainManager, brainSearch));
   app.use('/api/analytics', createAnalyticsRouter(engine));
   app.use('/api/webhooks', createWebhooksRouter(channelManager, engine));
+  app.use('/api/automation', createAutomationRouter({ flowEngine, broadcastManager, templateManager, triggerManager }));
 
   // Error handler (must be last)
   app.use(errorHandler);
 
-  return { app, engine, brainLoader, brainManager, channelManager };
+  return { app, engine, brainLoader, brainManager, channelManager, flowEngine, broadcastManager, templateManager, triggerManager };
 }
 
 // Start server if run directly

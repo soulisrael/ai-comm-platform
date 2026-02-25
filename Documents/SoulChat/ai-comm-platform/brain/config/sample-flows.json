@@ -1,0 +1,118 @@
+[
+  {
+    "id": "flow-welcome",
+    "name": "Welcome Flow",
+    "description": "Send a welcome message to new contacts and add a 'new' tag",
+    "trigger": "conversation_started",
+    "triggerConfig": {},
+    "steps": [
+      {
+        "id": "step-1",
+        "action": {
+          "type": "send_message",
+          "config": {
+            "content": "Welcome! 👋 Thanks for reaching out. How can we help you today?"
+          }
+        }
+      },
+      {
+        "id": "step-2",
+        "action": {
+          "type": "add_tag",
+          "config": { "tag": "new" }
+        }
+      }
+    ],
+    "active": false,
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "flow-after-hours",
+    "name": "After-Hours Auto-Reply",
+    "description": "Send an auto-reply when messages arrive outside business hours (9-17)",
+    "trigger": "message_received",
+    "triggerConfig": {
+      "outsideBusinessHours": true,
+      "businessHoursStart": 9,
+      "businessHoursEnd": 17
+    },
+    "steps": [
+      {
+        "id": "step-1",
+        "action": {
+          "type": "send_message",
+          "config": {
+            "content": "Thanks for your message! We're currently outside business hours (Sun-Thu, 9AM-5PM). We'll get back to you first thing tomorrow!"
+          }
+        }
+      }
+    ],
+    "active": false,
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "flow-sales-followup",
+    "name": "Sales Follow-Up",
+    "description": "When a conversation closes without a purchase, wait 24h then send a follow-up",
+    "trigger": "conversation_closed",
+    "triggerConfig": {},
+    "steps": [
+      {
+        "id": "step-1",
+        "action": {
+          "type": "wait",
+          "config": { "amount": 24, "unit": "hours" }
+        }
+      },
+      {
+        "id": "step-2",
+        "action": {
+          "type": "send_message",
+          "config": {
+            "content": "Hi! We noticed you were looking at our products recently. Is there anything else we can help with? We'd love to assist you!"
+          }
+        }
+      },
+      {
+        "id": "step-3",
+        "action": {
+          "type": "add_tag",
+          "config": { "tag": "followup-sent" }
+        }
+      }
+    ],
+    "active": false,
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "flow-abandoned-chat",
+    "name": "Abandoned Chat Reminder",
+    "description": "If no response for 30 minutes, send a nudge message",
+    "trigger": "message_received",
+    "triggerConfig": {},
+    "steps": [
+      {
+        "id": "step-1",
+        "action": {
+          "type": "wait",
+          "config": { "amount": 30, "unit": "minutes" }
+        }
+      },
+      {
+        "id": "step-2",
+        "action": {
+          "type": "send_message",
+          "config": {
+            "content": "Hey! Are you still there? Let us know if you have any more questions — we're happy to help! 😊"
+          }
+        }
+      }
+    ],
+    "active": false,
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+]

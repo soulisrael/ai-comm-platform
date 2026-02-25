@@ -11,6 +11,9 @@ import { Brain } from './pages/Brain';
 import { HandoffQueue } from './pages/HandoffQueue';
 import { Analytics } from './pages/Analytics';
 import { Settings } from './pages/Settings';
+import { Flows } from './pages/Flows';
+import { Broadcasts } from './pages/Broadcasts';
+import { Templates } from './pages/Templates';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import type { ReactNode } from 'react';
 
@@ -61,6 +64,9 @@ export default function App() {
               <Route path="brain" element={<Brain />} />
               <Route path="handoffs" element={<HandoffQueue />} />
               <Route path="analytics" element={<Analytics />} />
+              <Route path="flows" element={<Flows />} />
+              <Route path="broadcasts" element={<Broadcasts />} />
+              <Route path="templates" element={<Templates />} />
               <Route path="settings" element={<Settings />} />
             </Route>
           </Routes>

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, Users, Brain, ArrowRightLeft,
-  BarChart3, Settings, LogOut, Menu, X, ChevronLeft,
+  BarChart3, Settings, LogOut, Menu, X, ChevronLeft, Zap, Radio, FileText,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -14,6 +14,9 @@ const navItems = [
   { to: '/brain', icon: Brain, label: 'Brain' },
   { to: '/handoffs', icon: ArrowRightLeft, label: 'Handoff Queue' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/flows', icon: Zap, label: 'Flows' },
+  { to: '/broadcasts', icon: Radio, label: 'Broadcasts' },
+  { to: '/templates', icon: FileText, label: 'Templates' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
