@@ -65,7 +65,7 @@ describe('DocxConverter', () => {
     expect(mockClaude.chatJSON).toHaveBeenCalledWith(
       expect.objectContaining({
         temperature: 0.3,
-        maxTokens: 4096,
+        maxTokens: 16384,
         messages: [{ role: 'user', content: fakeText }],
       })
     );

@@ -46,6 +46,7 @@ export interface Conversation {
   status: ConversationStatus;
   currentAgent: AgentType | null;
   messages: Message[];
+  messageCount?: number;
   context: ConversationContext;
   startedAt: string;
   updatedAt: string;

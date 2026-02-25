@@ -60,7 +60,7 @@ export function Conversations() {
   const filtered = search
     ? conversations.filter(c =>
         c.contactId.toLowerCase().includes(search.toLowerCase()) ||
-        c.messages.some(m => m.content.toLowerCase().includes(search.toLowerCase()))
+        (c.messages || []).some(m => m.content.toLowerCase().includes(search.toLowerCase()))
       )
     : conversations;
 
@@ -470,7 +470,8 @@ export function Conversations() {
 }
 
 function ConversationCard({ conversation: c, active, onClick }: { conversation: Conversation; active: boolean; onClick: () => void }) {
-  const lastMsg = c.messages[c.messages.length - 1];
+  const messages = c.messages || [];
+  const lastMsg = messages[messages.length - 1];
   return (
     <button
       onClick={onClick}
