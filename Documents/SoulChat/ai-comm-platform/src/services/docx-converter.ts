@@ -52,10 +52,11 @@ Rules:
 - Use camelCase for JSON keys
 - Arrays for lists of items, objects for grouped data
 - Preserve all important details, numbers, names, and dates
+- Be concise — summarize long paragraphs, don't copy them verbatim
 - If the document contains Q&A pairs, structure as { "faqs": [{ "question": "...", "answer": "...", "keywords": [...] }] }
 - If the document contains product info, structure as { "products": [{ "name": "...", "description": "...", ... }] }
 - For general documents, use { "title": "...", "sections": [{ "heading": "...", "content": "..." }], "keyPoints": [...] }
-- Return ONLY valid JSON, no markdown or explanation
+- Return ONLY valid JSON, no markdown code fences, no explanation — just the raw JSON object
 
 ${formatSample ? `Here is an example of existing data in this category for format reference:\n${formatSample}` : ''}`;
 
@@ -63,7 +64,7 @@ ${formatSample ? `Here is an example of existing data in this category for forma
       systemPrompt,
       messages: [{ role: 'user', content: extractedText }],
       temperature: 0.3,
-      maxTokens: 4096,
+      maxTokens: 16384,
     });
 
     logger.info('Document converted successfully', {
