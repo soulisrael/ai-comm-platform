@@ -13,7 +13,12 @@
     "db:migrate": "tsx scripts/migrate-db.ts",
     "db:seed": "tsx scripts/seed-db.ts",
     "test:whatsapp": "tsx scripts/test-whatsapp.ts",
-    "setup:webhooks": "tsx scripts/setup-webhooks.ts"
+    "setup:webhooks": "tsx scripts/setup-webhooks.ts",
+    "start:prod": "node dist/src/api/server.js",
+    "deploy": "bash scripts/deploy.sh",
+    "backup": "bash scripts/backup.sh",
+    "db:migrate:prod": "NODE_ENV=production tsx scripts/migrate-db.ts",
+    "health": "curl -s http://localhost:3000/health | node -e \"process.stdin.resume(); process.stdin.on('data',d=>{const h=JSON.parse(d);console.log(h.status==='healthy'?'OK':'DEGRADED',JSON.stringify(h,null,2))})\""
   },
   "keywords": [],
   "author": "",
@@ -42,6 +47,7 @@
     "helmet": "^8.1.0",
     "ioredis": "^5.9.3",
     "morgan": "^1.10.1",
+    "prom-client": "^15.1.3",
     "supertest": "^7.2.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",

@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.*
+!.env.production.example
+dashboard/node_modules
+dashboard/dist
+.git
+.github
+tests
+*.test.ts
+*.spec.ts
+logs
+.DS_Store
+.claude

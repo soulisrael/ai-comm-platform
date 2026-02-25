@@ -35,6 +35,9 @@ import { ChannelManager } from '../channels/channel-manager';
 import { WhatsAppAdapter } from '../channels/whatsapp-adapter';
 import { InstagramAdapter } from '../channels/instagram-adapter';
 import { TelegramAdapter } from '../channels/telegram-adapter';
+import { metricsHandler, messagesTotal, conversationsActive, handoffTotal } from '../services/monitoring';
+import { healthHandler, registerHealthCheck } from '../services/health-check';
+import { startAlertLoop, trackRequest } from '../services/alerting';
 import logger from '../services/logger';
 
 dotenv.config();
@@ -48,7 +51,10 @@ export async function createApp(options?: {
 
   // Middleware
   app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(cors());
+  const corsOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+    : '*';
+  app.use(cors({ origin: corsOrigins }));
   app.use(compression());
   app.use(morgan('combined', {
     stream: { write: (message: string) => logger.info(message.trim()) },
@@ -132,14 +138,34 @@ export async function createApp(options?: {
     logger.info('Message sync to Supabase enabled.');
   }
 
-  // Health check
-  app.get('/health', (_req, res) => {
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      version: '1.0.0',
-    });
+  // Register health checks
+  registerHealthCheck('brain', () => brainLoader.getData().size > 0);
+  registerHealthCheck('claude_api', () => claude !== null);
+
+  // Track message metrics
+  engine.on('message:incoming', ({ message }) => {
+    messagesTotal.inc({ channel: message.channel, direction: 'inbound' });
+    trackRequest(false);
   });
+  engine.on('message:outgoing', ({ message }) => {
+    messagesTotal.inc({ channel: message.channel, direction: 'outbound' });
+  });
+  engine.on('conversation:started', () => {
+    conversationsActive.inc();
+  });
+  engine.on('conversation:closed', () => {
+    conversationsActive.dec();
+  });
+  engine.on('conversation:handoff', () => {
+    handoffTotal.inc();
+  });
+
+  // Start alert monitoring loop
+  startAlertLoop();
+
+  // Health check + metrics endpoints (no auth required)
+  app.get('/health', healthHandler);
+  app.get('/metrics', metricsHandler);
 
   // Swagger docs
   const swaggerSpec = swaggerJsdoc({
