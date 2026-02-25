@@ -4,6 +4,8 @@ export type MessageType = 'text' | 'image' | 'button' | 'template' | 'system';
 
 export type ChannelType = 'whatsapp' | 'instagram' | 'telegram' | 'web';
 
+export type SenderType = 'customer' | 'ai_agent' | 'human_agent' | 'system';
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -13,6 +15,9 @@ export interface Message {
   content: string;
   channel: ChannelType;
   metadata: Record<string, unknown>;
+  senderType?: SenderType;
+  customAgentId?: string;
+  isInternalNote?: boolean;
   timestamp: Date;
 }
 

@@ -36,6 +36,8 @@ export interface Conversation {
   currentAgent: AgentType | null;
   messages: Message[];
   context: ConversationContext;
+  customAgentId?: string;
+  humanAgentId?: string;
   startedAt: Date;
   updatedAt: Date;
 }

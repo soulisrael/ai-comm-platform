@@ -4,7 +4,9 @@
 
 import { Contact } from '../types/contact';
 import { Conversation, ConversationStatus, ConversationContext, AgentType } from '../types/conversation';
-import { Message, MessageDirection, MessageType, ChannelType } from '../types/message';
+import { Message, MessageDirection, MessageType, ChannelType, SenderType } from '../types/message';
+import { CustomAgent, CustomAgentSettings } from '../types/custom-agent';
+import { Topic, TopicContent } from '../types/topic';
 
 // ─── Row interfaces (match Supabase/PostgreSQL column names) ────────────────
 
@@ -30,6 +32,8 @@ export interface ConversationRow {
   status: string;
   current_agent: string | null;
   context: Record<string, unknown>;
+  custom_agent_id: string | null;
+  human_agent_id: string | null;
   started_at: string;
   updated_at: string;
 }
@@ -43,6 +47,9 @@ export interface MessageRow {
   content: string;
   channel: string;
   metadata: Record<string, unknown>;
+  sender_type: string | null;
+  custom_agent_id: string | null;
+  is_internal_note: boolean;
   timestamp: string;
 }
 
@@ -75,6 +82,37 @@ export interface AnalyticsEventRow {
   contact_id: string | null;
   data: Record<string, unknown>;
   created_at: string;
+}
+
+export interface CustomAgentRow {
+  id: string;
+  name: string;
+  description: string | null;
+  system_prompt: string | null;
+  routing_keywords: string[];
+  routing_description: string | null;
+  handoff_rules: Record<string, unknown>;
+  transfer_rules: Record<string, unknown>;
+  settings: Record<string, unknown>;
+  is_default: boolean;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TopicRow {
+  id: string;
+  name: string;
+  description: string | null;
+  content: Record<string, unknown>;
+  is_shared: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentTopicRow {
+  agent_id: string;
+  topic_id: string;
 }
 
 // ─── Mapping functions: Row → TypeScript ────────────────────────────────────
@@ -130,6 +168,8 @@ export function conversationFromRow(row: ConversationRow, messages: Message[] = 
       tags: [],
       customFields: {},
     },
+    customAgentId: row.custom_agent_id || undefined,
+    humanAgentId: row.human_agent_id || undefined,
     startedAt: new Date(row.started_at),
     updatedAt: new Date(row.updated_at),
   };
@@ -143,6 +183,8 @@ export function conversationToRow(conversation: Conversation): ConversationRow {
     status: conversation.status,
     current_agent: conversation.currentAgent,
     context: conversation.context as unknown as Record<string, unknown>,
+    custom_agent_id: conversation.customAgentId || null,
+    human_agent_id: conversation.humanAgentId || null,
     started_at: conversation.startedAt.toISOString(),
     updated_at: conversation.updatedAt.toISOString(),
   };
@@ -158,6 +200,9 @@ export function messageFromRow(row: MessageRow): Message {
     content: row.content,
     channel: row.channel as ChannelType,
     metadata: row.metadata || {},
+    senderType: (row.sender_type as SenderType) || undefined,
+    customAgentId: row.custom_agent_id || undefined,
+    isInternalNote: row.is_internal_note || false,
     timestamp: new Date(row.timestamp),
   };
 }
@@ -172,6 +217,9 @@ export function messageToRow(message: Message): MessageRow {
     content: message.content,
     channel: message.channel,
     metadata: message.metadata,
+    sender_type: message.senderType || null,
+    custom_agent_id: message.customAgentId || null,
+    is_internal_note: message.isInternalNote || false,
     timestamp: message.timestamp.toISOString(),
   };
 }
@@ -198,5 +246,71 @@ export function analyticsEventFromRow(row: AnalyticsEventRow) {
     contactId: row.contact_id,
     data: row.data || {},
     createdAt: new Date(row.created_at),
+  };
+}
+
+// ─── Custom Agent mapping functions ──────────────────────────────────────────
+
+export function customAgentFromRow(row: CustomAgentRow): CustomAgent {
+  const settings = row.settings as unknown as CustomAgentSettings;
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    systemPrompt: row.system_prompt,
+    routingKeywords: row.routing_keywords || [],
+    routingDescription: row.routing_description,
+    handoffRules: row.handoff_rules || {},
+    transferRules: row.transfer_rules || {},
+    settings: settings || { temperature: 0.7, maxTokens: 1024, language: 'he', model: 'gpt-4' },
+    isDefault: row.is_default,
+    active: row.active,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+export function customAgentToRow(agent: CustomAgent): CustomAgentRow {
+  return {
+    id: agent.id,
+    name: agent.name,
+    description: agent.description,
+    system_prompt: agent.systemPrompt,
+    routing_keywords: agent.routingKeywords,
+    routing_description: agent.routingDescription,
+    handoff_rules: agent.handoffRules,
+    transfer_rules: agent.transferRules,
+    settings: agent.settings as unknown as Record<string, unknown>,
+    is_default: agent.isDefault,
+    active: agent.active,
+    created_at: agent.createdAt.toISOString(),
+    updated_at: agent.updatedAt.toISOString(),
+  };
+}
+
+// ─── Topic mapping functions ─────────────────────────────────────────────────
+
+export function topicFromRow(row: TopicRow): Topic {
+  const content = row.content as unknown as TopicContent;
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    content: content || { description: '', faq: [], customFields: {} },
+    isShared: row.is_shared,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+export function topicToRow(topic: Topic): TopicRow {
+  return {
+    id: topic.id,
+    name: topic.name,
+    description: topic.description,
+    content: topic.content as unknown as Record<string, unknown>,
+    is_shared: topic.isShared,
+    created_at: topic.createdAt.toISOString(),
+    updated_at: topic.updatedAt.toISOString(),
   };
 }
