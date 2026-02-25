@@ -116,7 +116,16 @@ export function createUploadRouter(
           tokenUsage: result.tokenUsage,
         });
       } catch (err) {
-        next(err);
+        if (err instanceof AppError) return next(err);
+        let message = err instanceof Error ? err.message : 'Upload failed';
+        // Extract readable message from Claude API errors
+        const creditMatch = message.match(/credit balance is too low/i);
+        if (creditMatch) {
+          message = 'Anthropic API credit balance is too low. Please top up your credits at console.anthropic.com.';
+        } else if (message.includes('Failed to parse Claude response as JSON')) {
+          message = 'Claude returned an invalid response. Please try again.';
+        }
+        next(new AppError(message, 500, 'UPLOAD_CONVERSION_ERROR'));
       }
     }
   );

@@ -169,8 +169,8 @@ function DocxUploadSection() {
       const result = await preview.mutateAsync({ file, category, moduleName: moduleName || undefined });
       setPreviewData(result.convertedData);
       setState('preview');
-    } catch {
-      toast.error('Failed to convert document');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to convert document');
       setState('idle');
     }
   };
