@@ -60,6 +60,8 @@ export function createMessagesRouter(engine: ConversationEngine): Router {
       response: result.outgoingMessage.content,
       agent: result.agentType,
       routingDecision: result.routingDecision,
+      customAgentId: result.conversation.customAgentId,
+      agentName: result.routingDecision?.customAgentName,
     });
   });
 

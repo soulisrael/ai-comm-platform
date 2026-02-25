@@ -181,13 +181,21 @@ export function createConversationsRouter(engine: ConversationEngine): Router {
       throw new AppError('Conversation not found', 404, 'NOT_FOUND');
     }
 
-    const { agentType } = req.body || {};
-    if (agentType) {
+    const { agentType, customAgentId } = req.body || {};
+
+    if (customAgentId) {
+      orchestrator.switchCustomAgent(conversation, customAgentId);
+    } else if (agentType) {
       convManager.updateAgent(id, agentType);
     }
 
     engine.resumeAI(id);
-    res.json({ success: true, status: 'active', agentType: agentType || conversation.currentAgent });
+    res.json({
+      success: true,
+      status: 'active',
+      agentType: agentType || conversation.currentAgent,
+      customAgentId: customAgentId || conversation.customAgentId,
+    });
   });
 
   /**
@@ -312,7 +320,15 @@ export function createConversationsRouter(engine: ConversationEngine): Router {
       throw new AppError('Conversation not found', 404, 'NOT_FOUND');
     }
 
-    const { agentType } = req.body;
+    const { agentType, customAgentId } = req.body;
+
+    // If customAgentId provided, switch to custom agent
+    if (customAgentId) {
+      orchestrator.switchCustomAgent(conversation, customAgentId);
+      res.json({ success: true, customAgentId });
+      return;
+    }
+
     const validAgents: AgentType[] = ['sales', 'support', 'trial_meeting'];
     if (!agentType || !validAgents.includes(agentType)) {
       throw new AppError(`agentType must be one of: ${validAgents.join(', ')}`, 400, 'VALIDATION_ERROR');
@@ -322,6 +338,29 @@ export function createConversationsRouter(engine: ConversationEngine): Router {
     convManager.updateAgent(id, agentType);
 
     res.json({ success: true, agentType });
+  });
+
+  /**
+   * @swagger
+   * /api/conversations/{id}/transfer-to-agent:
+   *   post:
+   *     summary: Transfer to a different custom agent
+   *     tags: [Conversations]
+   */
+  router.post('/:id/transfer-to-agent', (req: Request, res: Response) => {
+    const id = param(req, 'id');
+    const conversation = convManager.getConversation(id);
+    if (!conversation) {
+      throw new AppError('Conversation not found', 404, 'NOT_FOUND');
+    }
+
+    const { targetAgentId } = req.body || {};
+    if (!targetAgentId) {
+      throw new AppError('targetAgentId is required', 400, 'VALIDATION_ERROR');
+    }
+
+    orchestrator.switchCustomAgent(conversation, targetAgentId);
+    res.json({ success: true, customAgentId: targetAgentId });
   });
 
   return router;

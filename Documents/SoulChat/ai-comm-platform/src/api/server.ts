@@ -28,6 +28,12 @@ import { createAnalyticsRouter } from './routes/analytics';
 import { createWebhooksRouter } from './routes/webhooks';
 import { createAutomationRouter } from './routes/automation';
 import { createUploadRouter } from './routes/upload';
+import { createCustomAgentsRouter } from './routes/custom-agents';
+import { createTopicsRouter } from './routes/topics';
+import { createCompanyRouter } from './routes/company';
+import { CustomAgentRepository } from '../database/repositories/custom-agent-repository';
+import { TopicRepository } from '../database/repositories/topic-repository';
+import { getSupabaseClient } from '../database/supabase-client';
 import { DocxConverter } from '../services/docx-converter';
 import { FlowEngine } from '../automation/flow-engine';
 import { TriggerManager } from '../automation/triggers/trigger-manager';
@@ -102,8 +108,17 @@ export async function createApp(options?: {
   // Initialize stores (SupabaseStore or MemoryStore based on env)
   const { contactStore, conversationStore, messageSync } = await createStores();
 
+  // Initialize custom agent repos if Supabase is available
+  const supabase = getSupabaseClient();
+  let customAgentRepo: CustomAgentRepository | undefined;
+  let topicRepo: TopicRepository | undefined;
+  if (supabase) {
+    customAgentRepo = new CustomAgentRepository(supabase);
+    topicRepo = new TopicRepository(supabase);
+  }
+
   // Initialize engine with injected stores
-  const orchestrator = new AgentOrchestrator(claude, brainLoader);
+  const orchestrator = new AgentOrchestrator(claude, brainLoader, customAgentRepo, topicRepo);
   const conversationManager = new ConversationManager(conversationStore);
   const contactManager = new ContactManager(contactStore);
   const engine = new ConversationEngine(orchestrator, conversationManager, contactManager);
@@ -210,10 +225,22 @@ export async function createApp(options?: {
   app.use('/api/webhooks', createWebhooksRouter(channelManager, engine));
   app.use('/api/automation', createAutomationRouter({ flowEngine, broadcastManager, templateManager, triggerManager }));
 
+  // Custom agent & topic routes (only if Supabase available)
+  if (customAgentRepo && topicRepo) {
+    const agentRunner = orchestrator.getAgentRunner();
+    if (agentRunner) {
+      app.use('/api/custom-agents', createCustomAgentsRouter(customAgentRepo, topicRepo, agentRunner, claude));
+    }
+    app.use('/api/topics', createTopicsRouter(topicRepo, customAgentRepo));
+  }
+
+  // Company settings route
+  app.use('/api/company', createCompanyRouter(brainLoader, brainManager));
+
   // Error handler (must be last)
   app.use(errorHandler);
 
-  return { app, engine, brainLoader, brainManager, channelManager, flowEngine, broadcastManager, templateManager, triggerManager };
+  return { app, engine, brainLoader, brainManager, channelManager, flowEngine, broadcastManager, templateManager, triggerManager, customAgentRepo, topicRepo };
 }
 
 // Start server if run directly
