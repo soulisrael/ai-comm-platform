@@ -2,19 +2,16 @@ import * as readline from 'readline';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { ClaudeAPI } from '../src/services/claude-api';
-import { BrainLoader } from '../src/brain/brain-loader';
 import { AgentOrchestrator } from '../src/agents/agent-orchestrator';
 import { ConversationEngine, EngineResult } from '../src/conversation/conversation-engine';
 import { ConversationManager } from '../src/conversation/conversation-manager';
 import { ContactManager } from '../src/conversation/contact-manager';
 import { CustomAgentRepository } from '../src/database/repositories/custom-agent-repository';
-import { TopicRepository } from '../src/database/repositories/topic-repository';
-import { AgentType } from '../src/types/conversation';
-import path from 'path';
+import { BrainRepository } from '../src/database/repositories/brain-repository';
 
 dotenv.config();
 
-const COLORS = {
+const C = {
   reset: '\x1b[0m',
   bright: '\x1b[1m',
   dim: '\x1b[2m',
@@ -24,109 +21,92 @@ const COLORS = {
   magenta: '\x1b[35m',
   cyan: '\x1b[36m',
   red: '\x1b[31m',
-  white: '\x1b[37m',
 };
 
-function color(text: string, c: keyof typeof COLORS): string {
-  return `${COLORS[c]}${text}${COLORS.reset}`;
-}
+const c = (text: string, color: keyof typeof C) => `${C[color]}${text}${C.reset}`;
 
 async function main() {
-  console.log(color('\n🤖 AI Communication Platform — Agent CLI', 'bright'));
-  console.log(color('==========================================', 'dim'));
-  console.log(color('Commands:', 'cyan'));
-  console.log('  /agents — list custom agents');
-  console.log('  /switch <name|id> — switch to a custom agent');
-  console.log('  /topics — show topics for current agent');
-  console.log('  /brain products|faq — show brain data');
-  console.log('  /history — show conversation history');
-  console.log('  /contacts — list all contacts');
-  console.log('  /conversations — list all conversations');
-  console.log('  /stats — show platform stats');
-  console.log('  /reset — start new conversation');
-  console.log('  /usage — show token usage');
-  console.log('  /quit — exit');
-  console.log(color('==========================================\n', 'dim'));
+  console.log(c('\n🤖 AI Communication Platform — Agent CLI', 'bright'));
+  console.log(c('==========================================', 'dim'));
+  console.log(c('פקודות:', 'cyan'));
+  console.log('  /agents           — רשימת סוכנים + כמה פריטים במוח');
+  console.log('  /brain <agentId>  — הצגת כל המוח של סוכן');
+  console.log('  /switch <name|id> — החלפה ידנית לסוכן');
+  console.log('  /history          — היסטוריית שיחה');
+  console.log('  /stats            — סטטיסטיקות');
+  console.log('  /reset            — שיחה חדשה');
+  console.log('  /quit             — יציאה');
+  console.log(c('==========================================\n', 'dim'));
 
-  // Initialize
+  // Initialize Claude
   let claude: ClaudeAPI;
   try {
     claude = new ClaudeAPI();
-  } catch (err) {
-    console.error(color('❌ Error: ANTHROPIC_API_KEY not set. Add it to .env file.', 'red'));
+  } catch {
+    console.error(c('❌ ANTHROPIC_API_KEY לא מוגדר. הוסף ל-.env', 'red'));
     process.exit(1);
   }
 
-  const brainPath = path.resolve(process.cwd(), 'brain');
-  const brainLoader = new BrainLoader(brainPath);
-  brainLoader.loadAll();
-
-  // Initialize repos if Supabase is configured
-  let customAgentRepo: CustomAgentRepository | undefined;
-  let topicRepo: TopicRepository | undefined;
-  let isCustomMode = false;
-
+  // Initialize Supabase + repos
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
 
-  if (supabaseUrl && supabaseKey) {
-    try {
-      const supabase = createClient(supabaseUrl, supabaseKey);
-      customAgentRepo = new CustomAgentRepository(supabase);
-      topicRepo = new TopicRepository(supabase);
-      isCustomMode = true;
-      console.log(color('✅ Supabase connected — custom agent mode enabled', 'green'));
-    } catch (err) {
-      console.log(color('⚠️  Supabase connection failed, using legacy mode', 'yellow'));
-    }
-  } else {
-    console.log(color('ℹ️  No Supabase configured — legacy agent mode', 'dim'));
+  if (!supabaseUrl || !supabaseKey) {
+    console.error(c('❌ SUPABASE_URL / SUPABASE_SERVICE_KEY לא מוגדרים ב-.env', 'red'));
+    process.exit(1);
   }
 
-  const orchestrator = new AgentOrchestrator(claude, brainLoader, customAgentRepo, topicRepo);
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const customAgentRepo = new CustomAgentRepository(supabase);
+  const brainRepo = new BrainRepository(supabase);
+
+  // Verify agents exist
+  const agents = await customAgentRepo.getAllWithBrain();
+  if (agents.length === 0) {
+    console.error(c('❌ לא נמצאו סוכנים ב-DB. הרץ את המיגרציה קודם.', 'red'));
+    process.exit(1);
+  }
+
+  console.log(c(`✅ Supabase מחובר — ${agents.length} סוכנים פעילים`, 'green'));
+
+  // Initialize engine
+  const orchestrator = new AgentOrchestrator(claude, customAgentRepo);
   const conversationManager = new ConversationManager();
   const contactManager = new ContactManager();
   const engine = new ConversationEngine(orchestrator, conversationManager, contactManager);
 
   let currentConversationId: string | undefined;
 
-  // Listen for events
+  // Events
   engine.on('conversation:started', ({ conversation }) => {
-    console.log(color(`  📌 New conversation: ${conversation.id}`, 'dim'));
+    console.log(c(`  📌 שיחה חדשה: ${conversation.id}`, 'dim'));
   });
   engine.on('conversation:handoff', ({ reason }) => {
-    console.log(color(`  ⚠️  Handoff event: ${reason}`, 'red'));
-  });
-  engine.on('conversation:closed', () => {
-    console.log(color(`  ✅ Conversation closed`, 'dim'));
+    console.log(c(`  ⚠️  העברה לנציג: ${reason}`, 'red'));
   });
 
-  console.log(color(`✅ Brain loaded. Mode: ${isCustomMode ? 'custom agents' : 'legacy agents'}\n`, 'green'));
+  console.log('');
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   const prompt = () => {
     const conv = currentConversationId
       ? conversationManager.getConversation(currentConversationId)
       : undefined;
 
-    let agentLabel: string;
-    if (isCustomMode && conv?.customAgentId) {
-      agentLabel = color(`[${conv.customAgentId.slice(0, 8)}]`, 'magenta');
-    } else if (conv?.currentAgent) {
-      agentLabel = color(`[${conv.currentAgent}]`, 'magenta');
+    let label: string;
+    if (conv?.customAgentId) {
+      // Find agent name
+      const agent = agents.find(a => a.id === conv.customAgentId);
+      label = agent ? c(`[${agent.name}]`, 'magenta') : c(`[${conv.customAgentId.slice(0, 8)}]`, 'magenta');
     } else {
-      agentLabel = color('[new]', 'dim');
+      label = c('[חדש]', 'dim');
     }
 
-    rl.question(`${agentLabel} ${color('You:', 'green')} `, async (input) => {
+    rl.question(`${label} ${c('אתה:', 'green')} `, async (input) => {
       const trimmed = input.trim();
       if (!trimmed) { prompt(); return; }
 
-      // Handle commands
       if (trimmed.startsWith('/')) {
         await handleCommand(trimmed);
         prompt();
@@ -134,7 +114,7 @@ async function main() {
       }
 
       try {
-        console.log(color('\n⏳ Processing...', 'dim'));
+        console.log(c('\n⏳ מעבד...', 'dim'));
         const result = await engine.handleIncomingMessage({
           content: trimmed,
           channelUserId: 'cli-user-001',
@@ -145,7 +125,7 @@ async function main() {
         currentConversationId = result.conversation.id;
         displayResult(result);
       } catch (err) {
-        console.error(color(`\n❌ Error: ${err}`, 'red'));
+        console.error(c(`\n❌ שגיאה: ${err}`, 'red'));
       }
 
       prompt();
@@ -153,7 +133,7 @@ async function main() {
   };
 
   rl.on('close', () => {
-    console.log(color('\n👋 Goodbye!', 'cyan'));
+    console.log(c('\n👋 להתראות!', 'cyan'));
     process.exit(0);
   });
 
@@ -166,177 +146,101 @@ async function main() {
 
     switch (command) {
       case '/agents': {
-        if (!isCustomMode || !customAgentRepo) {
-          console.log(color('Custom agents not available (no Supabase connection).', 'yellow'));
-          console.log(color('Legacy agents: sales, support, trial_meeting, handoff', 'dim'));
+        const freshAgents = await customAgentRepo.getAllWithBrain();
+        console.log(c('\n🤖 סוכנים:', 'cyan'));
+        for (const agent of freshAgents) {
+          const status = agent.active ? c('פעיל', 'green') : c('לא פעיל', 'red');
+          const defaultTag = agent.isDefault ? c(' (ברירת מחדל)', 'yellow') : '';
+          const brainCount = agent.brain.length;
+          console.log(`  ${c(agent.name, 'bright')}${defaultTag} [${status}] — ${c(`${brainCount} פריטי מוח`, 'dim')}`);
+          console.log(c(`    ID: ${agent.id}`, 'dim'));
+          if (agent.routingKeywords.length > 0) {
+            console.log(c(`    מילות מפתח: ${agent.routingKeywords.join(', ')}`, 'dim'));
+          }
+          if (brainCount > 0) {
+            const titles = agent.brain.map(b => b.title).join(', ');
+            console.log(c(`    מוח: ${titles}`, 'dim'));
+          }
+        }
+        break;
+      }
+
+      case '/brain': {
+        if (!arg) {
+          // If in conversation, show current agent's brain
+          const conv = currentConversationId
+            ? conversationManager.getConversation(currentConversationId)
+            : undefined;
+          if (conv?.customAgentId) {
+            await showBrain(conv.customAgentId);
+          } else {
+            console.log(c('שימוש: /brain <agentId|agentName>', 'yellow'));
+            console.log(c('או שלח הודעה קודם כדי להציג את המוח של הסוכן הנוכחי', 'dim'));
+          }
           return;
         }
-        try {
-          const agents = await customAgentRepo.getAllWithTopics();
-          console.log(color('\n🤖 Custom Agents:', 'cyan'));
-          for (const agent of agents) {
-            const status = agent.active ? color('active', 'green') : color('inactive', 'red');
-            const defaultTag = agent.isDefault ? color(' (default)', 'yellow') : '';
-            const topicNames = agent.topics.map(t => t.name).join(', ');
-            console.log(`  ${agent.name}${defaultTag} [${status}]`);
-            console.log(color(`    ID: ${agent.id}`, 'dim'));
-            if (agent.routingKeywords.length > 0) {
-              console.log(color(`    Keywords: ${agent.routingKeywords.join(', ')}`, 'dim'));
-            }
-            if (topicNames) {
-              console.log(color(`    Topics: ${topicNames}`, 'dim'));
-            }
-          }
-        } catch (err) {
-          console.error(color(`❌ Error loading agents: ${err}`, 'red'));
+
+        // Find agent by ID or name
+        const freshAgents = await customAgentRepo.getAllWithBrain();
+        const match = freshAgents.find(
+          a => a.id === arg || a.id.startsWith(arg) || a.name === arg || a.name.includes(arg)
+        );
+        if (match) {
+          await showBrain(match.id);
+        } else {
+          console.log(c(`סוכן "${arg}" לא נמצא. השתמש ב-/agents לרשימה.`, 'yellow'));
         }
         break;
       }
 
       case '/switch': {
         if (!currentConversationId) {
-          console.log(color('No active conversation. Send a message first.', 'yellow'));
+          console.log(c('אין שיחה פעילה. שלח הודעה קודם.', 'yellow'));
           return;
         }
-
         if (!arg) {
-          console.log(color('Usage: /switch <agent-name|agent-id>', 'yellow'));
+          console.log(c('שימוש: /switch <שם-סוכן|ID>', 'yellow'));
           return;
         }
 
         const conv = conversationManager.getConversation(currentConversationId);
         if (!conv) return;
 
-        if (isCustomMode && customAgentRepo) {
-          // Try to find custom agent by name or ID
-          try {
-            const agents = await customAgentRepo.getAllWithTopics();
-            const match = agents.find(
-              a => a.name === arg || a.id === arg || a.id.startsWith(arg)
-            );
-            if (match) {
-              orchestrator.switchCustomAgent(conv, match.id);
-              console.log(color(`✅ Switched to "${match.name}"`, 'green'));
-            } else {
-              console.log(color(`Agent "${arg}" not found. Use /agents to list.`, 'yellow'));
-            }
-          } catch (err) {
-            console.error(color(`❌ Error: ${err}`, 'red'));
-          }
+        const freshAgents = await customAgentRepo.getAllWithBrain();
+        const match = freshAgents.find(
+          a => a.name === arg || a.id === arg || a.id.startsWith(arg) || a.name.includes(arg)
+        );
+        if (match) {
+          orchestrator.switchCustomAgent(conv, match.id);
+          console.log(c(`✅ הוחלף לסוכן "${match.name}"`, 'green'));
         } else {
-          // Legacy mode
-          if (!['sales', 'support', 'trial_meeting', 'handoff'].includes(arg)) {
-            console.log(color('Usage: /switch sales|support|trial_meeting|handoff', 'yellow'));
-            return;
-          }
-          orchestrator.switchAgent(conv, arg as AgentType);
-          conversationManager.updateAgent(currentConversationId, arg as AgentType);
-          console.log(color(`✅ Switched to ${arg} agent`, 'green'));
-        }
-        break;
-      }
-
-      case '/topics': {
-        if (!isCustomMode || !customAgentRepo) {
-          console.log(color('Topics are only available in custom agent mode.', 'yellow'));
-          return;
-        }
-        const conv = currentConversationId
-          ? conversationManager.getConversation(currentConversationId)
-          : undefined;
-        const agentId = conv?.customAgentId;
-        if (!agentId) {
-          console.log(color('No agent assigned yet. Send a message first.', 'yellow'));
-          return;
-        }
-        try {
-          const agent = await customAgentRepo.getWithTopics(agentId);
-          if (!agent || agent.topics.length === 0) {
-            console.log(color('No topics found for this agent.', 'yellow'));
-            return;
-          }
-          console.log(color(`\n📚 Topics for "${agent.name}":`, 'cyan'));
-          for (const topic of agent.topics) {
-            console.log(`  ${topic.name}${topic.isShared ? color(' (shared)', 'dim') : ''}`);
-            if (topic.content.description) {
-              console.log(color(`    ${topic.content.description.slice(0, 100)}`, 'dim'));
-            }
-            if (topic.content.schedule) {
-              console.log(color(`    Schedule: ${topic.content.schedule}`, 'dim'));
-            }
-            if (topic.content.price) {
-              console.log(color(`    Price: ${topic.content.price}`, 'dim'));
-            }
-          }
-        } catch (err) {
-          console.error(color(`❌ Error: ${err}`, 'red'));
-        }
-        break;
-      }
-
-      case '/brain': {
-        const brainSearch = orchestrator.getBrainSearch();
-        if (arg === 'products') {
-          const products = brainSearch.getProducts();
-          console.log(color('\n📦 Products:', 'cyan'));
-          console.log(JSON.stringify(products, null, 2));
-        } else if (arg === 'faq') {
-          console.log(color('\n❓ FAQ:', 'cyan'));
-          const faqEntry = brainLoader.getEntry('support', 'faq');
-          if (faqEntry) console.log(JSON.stringify(faqEntry.data, null, 2));
-        } else {
-          console.log(color('Usage: /brain products|faq', 'yellow'));
+          console.log(c(`סוכן "${arg}" לא נמצא. השתמש ב-/agents לרשימה.`, 'yellow'));
         }
         break;
       }
 
       case '/history': {
         if (!currentConversationId) {
-          console.log(color('No conversation history.', 'yellow'));
+          console.log(c('אין היסטוריית שיחה.', 'yellow'));
           return;
         }
         const messages = conversationManager.getConversationHistory(currentConversationId);
         if (messages.length === 0) {
-          console.log(color('No messages yet.', 'yellow'));
+          console.log(c('אין הודעות עדיין.', 'yellow'));
           return;
         }
-        const histConv = conversationManager.getConversation(currentConversationId);
-        console.log(color('\n📜 Conversation History:', 'cyan'));
+        const conv = conversationManager.getConversation(currentConversationId);
+        const agentName = conv?.customAgentId
+          ? agents.find(a => a.id === conv.customAgentId)?.name || 'סוכן'
+          : 'בוט';
+
+        console.log(c('\n📜 היסטוריית שיחה:', 'cyan'));
         for (const msg of messages) {
-          const prefix = msg.direction === 'inbound'
-            ? color('  You:', 'green')
-            : color(`  ${histConv?.currentAgent || 'Bot'}:`, 'blue');
-          console.log(`${prefix} ${msg.content.slice(0, 200)}`);
-        }
-        break;
-      }
-
-      case '/contacts': {
-        const contacts = contactManager.getAllContacts();
-        if (contacts.length === 0) {
-          console.log(color('No contacts yet.', 'yellow'));
-          return;
-        }
-        console.log(color('\n👥 Contacts:', 'cyan'));
-        for (const c of contacts) {
-          console.log(`  ${c.id}: ${c.name || 'Unknown'} (${c.channel}:${c.channelUserId}) — ${c.conversationCount} conversations, tags: [${c.tags.join(', ')}]`);
-        }
-        break;
-      }
-
-      case '/conversations': {
-        const convs = conversationManager.getAllConversations();
-        if (convs.length === 0) {
-          console.log(color('No conversations yet.', 'yellow'));
-          return;
-        }
-        console.log(color('\n💬 Conversations:', 'cyan'));
-        for (const c of convs) {
-          const isCurrent = c.id === currentConversationId ? ' ← current' : '';
-          const agentInfo = c.customAgentId
-            ? `customAgent=${c.customAgentId.slice(0, 8)}`
-            : `agent=${c.currentAgent || 'none'}`;
-          console.log(`  ${c.id}: status=${c.status}, ${agentInfo}, messages=${c.messages.length}, channel=${c.channel}${isCurrent}`);
+          if (msg.direction === 'inbound') {
+            console.log(`  ${c('אתה:', 'green')} ${msg.content}`);
+          } else {
+            console.log(`  ${c(`🤖 ${agentName}:`, 'blue')} ${msg.content}`);
+          }
         }
         break;
       }
@@ -345,17 +249,12 @@ async function main() {
         const stats = conversationManager.getStats();
         const contacts = contactManager.getAllContacts();
         const usage = claude.getUsage();
-        console.log(color('\n📊 Platform Stats:', 'cyan'));
-        console.log(`  Mode:               ${isCustomMode ? 'Custom Agents' : 'Legacy Agents'}`);
-        console.log(`  Contacts:           ${contacts.length}`);
-        console.log(`  Total conversations: ${stats.total}`);
-        console.log(`  Active:             ${stats.active}`);
-        console.log(`  Waiting:            ${stats.waiting}`);
-        console.log(`  Handoff:            ${stats.handoff}`);
-        console.log(`  Closed:             ${stats.closed}`);
-        console.log(`  API input tokens:   ${usage.totalInputTokens}`);
-        console.log(`  API output tokens:  ${usage.totalOutputTokens}`);
-        console.log(`  API calls:          ${usage.totalCalls}`);
+        console.log(c('\n📊 סטטיסטיקות:', 'cyan'));
+        console.log(`  סוכנים:       ${agents.length}`);
+        console.log(`  אנשי קשר:    ${contacts.length}`);
+        console.log(`  שיחות:        ${stats.total} (פעילות: ${stats.active}, ממתינות: ${stats.waiting})`);
+        console.log(`  טוקנים:       ${usage.totalInputTokens} in / ${usage.totalOutputTokens} out`);
+        console.log(`  קריאות API:   ${usage.totalCalls}`);
         break;
       }
 
@@ -364,46 +263,61 @@ async function main() {
           conversationManager.closeConversation(currentConversationId, 'User reset');
         }
         currentConversationId = undefined;
-        console.log(color('🔄 Conversation reset. Next message starts a new conversation.', 'green'));
+        console.log(c('🔄 שיחה אופסה. ההודעה הבאה תתחיל שיחה חדשה.', 'green'));
         break;
-
-      case '/usage': {
-        const tokenUsage = claude.getUsage();
-        console.log(color('\n📊 Token Usage:', 'cyan'));
-        console.log(`  Input tokens:  ${tokenUsage.totalInputTokens}`);
-        console.log(`  Output tokens: ${tokenUsage.totalOutputTokens}`);
-        console.log(`  Total calls:   ${tokenUsage.totalCalls}`);
-        break;
-      }
 
       case '/quit':
-        console.log(color('\n👋 Goodbye!', 'cyan'));
+        console.log(c('\n👋 להתראות!', 'cyan'));
         process.exit(0);
 
       default:
-        console.log(color(`Unknown command: ${command}`, 'yellow'));
+        console.log(c(`פקודה לא מוכרת: ${command}`, 'yellow'));
+    }
+  }
+
+  async function showBrain(agentId: string) {
+    const entries = await brainRepo.getByAgent(agentId);
+    const agent = agents.find(a => a.id === agentId);
+    const name = agent?.name || agentId;
+
+    if (entries.length === 0) {
+      console.log(c(`אין פריטי מוח לסוכן "${name}".`, 'yellow'));
+      return;
+    }
+
+    console.log(c(`\n🧠 מוח של "${name}" (${entries.length} פריטים):`, 'cyan'));
+    for (const entry of entries) {
+      const statusIcon = entry.active ? '✅' : '⏸️';
+      const categoryLabel = { product: 'מוצר', policy: 'מדיניות', faq: 'שאלות', script: 'תסריט', general: 'כללי' }[entry.category] || entry.category;
+
+      console.log(`\n  ${statusIcon} ${c(entry.title, 'bright')} ${c(`[${categoryLabel}]`, 'dim')}`);
+      // Show first 150 chars of content
+      const preview = entry.content.replace(/\n/g, ' ').slice(0, 150);
+      console.log(c(`     ${preview}${entry.content.length > 150 ? '...' : ''}`, 'dim'));
+
+      if (entry.metadata && Object.keys(entry.metadata).length > 0) {
+        const meta = Object.entries(entry.metadata).map(([k, v]) => `${k}: ${v}`).join(' | ');
+        console.log(c(`     📋 ${meta}`, 'dim'));
+      }
     }
   }
 
   function displayResult(result: EngineResult) {
+    // Show routing decision
     if (result.routingDecision) {
       const agentName = result.routingDecision.customAgentName || result.routingDecision.selectedAgent;
-      console.log(color(
-        `\n🔀 Routing: ${agentName} ` +
-        `(confidence: ${(result.routingDecision.confidence * 100).toFixed(0)}%)`,
+      console.log(c(
+        `\n🔀 ניתוב: ${agentName} (ביטחון: ${(result.routingDecision.confidence * 100).toFixed(0)}%)`,
         'yellow'
       ));
     }
 
-    const agentName = result.agentType || 'Bot';
-    console.log(color(`\n${agentName}:`, 'blue') + ` ${result.outgoingMessage.content}`);
+    // Show agent response with name
+    const agentName = result.routingDecision?.customAgentName
+      || agents.find(a => a.id === result.conversation.customAgentId)?.name
+      || 'בוט';
 
-    if (result.outgoingMessage.metadata?.action &&
-        result.outgoingMessage.metadata.action !== 'send_message') {
-      console.log(color(`\n📌 Action: ${result.outgoingMessage.metadata.action}`, 'magenta'));
-    }
-
-    console.log('');
+    console.log(`\n${c(`🤖 ${agentName}:`, 'blue')} ${result.outgoingMessage.content}\n`);
   }
 }
 
