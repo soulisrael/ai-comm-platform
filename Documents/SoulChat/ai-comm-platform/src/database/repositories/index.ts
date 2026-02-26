@@ -5,4 +5,8 @@ export { MessageRepository } from './message-repository';
 export { HandoffRepository } from './handoff-repository';
 export { AnalyticsRepository } from './analytics-repository';
 export { CustomAgentRepository } from './custom-agent-repository';
+export { BrainRepository } from './brain-repository';
 export { TopicRepository } from './topic-repository';
+export { TeamRepository } from './team-repository';
+export { FlowRepository } from './flow-repository';
+export { WaConfigRepository } from './wa-config-repository';

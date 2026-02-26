@@ -38,6 +38,11 @@ export interface Conversation {
   context: ConversationContext;
   customAgentId?: string;
   humanAgentId?: string;
+  assignedHumanId?: string;
+  takenOverAt?: Date;
+  serviceWindowStart?: Date;
+  serviceWindowExpires?: Date;
+  entryPoint?: string;
   startedAt: Date;
   updatedAt: Date;
 }
