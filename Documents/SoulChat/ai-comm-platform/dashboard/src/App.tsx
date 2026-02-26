@@ -7,13 +7,14 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { Conversations } from './pages/Conversations';
 import { Contacts } from './pages/Contacts';
-import { Brain } from './pages/Brain';
 import { HandoffQueue } from './pages/HandoffQueue';
 import { Analytics } from './pages/Analytics';
 import { Settings } from './pages/Settings';
 import { Flows } from './pages/Flows';
 import { Broadcasts } from './pages/Broadcasts';
 import { Templates } from './pages/Templates';
+import { AgentBuilder } from './pages/AgentBuilder';
+// TopicManager removed — brain entries are managed per-agent in AgentBuilder
 import { LoadingSpinner } from './components/LoadingSpinner';
 import type { ReactNode } from 'react';
 
@@ -61,9 +62,9 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="conversations" element={<Conversations />} />
               <Route path="contacts" element={<Contacts />} />
-              <Route path="brain" element={<Brain />} />
               <Route path="handoffs" element={<HandoffQueue />} />
               <Route path="analytics" element={<Analytics />} />
+              <Route path="agents" element={<AgentBuilder />} />
               <Route path="flows" element={<Flows />} />
               <Route path="broadcasts" element={<Broadcasts />} />
               <Route path="templates" element={<Templates />} />

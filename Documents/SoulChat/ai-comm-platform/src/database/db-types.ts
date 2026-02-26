@@ -5,8 +5,8 @@
 import { Contact } from '../types/contact';
 import { Conversation, ConversationStatus, ConversationContext, AgentType } from '../types/conversation';
 import { Message, MessageDirection, MessageType, ChannelType, SenderType } from '../types/message';
-import { CustomAgent, CustomAgentSettings } from '../types/custom-agent';
-import { Topic, TopicContent } from '../types/topic';
+import { CustomAgent, CustomAgentSettings, BrainEntry } from '../types/custom-agent';
+import { Topic, TopicContent } from '../types/topic'; // kept for legacy compat
 
 // ─── Row interfaces (match Supabase/PostgreSQL column names) ────────────────
 
@@ -89,6 +89,8 @@ export interface CustomAgentRow {
   name: string;
   description: string | null;
   system_prompt: string | null;
+  main_document_text: string | null;
+  main_document_filename: string | null;
   routing_keywords: string[];
   routing_description: string | null;
   handoff_rules: Record<string, unknown>;
@@ -113,6 +115,19 @@ export interface TopicRow {
 export interface AgentTopicRow {
   agent_id: string;
   topic_id: string;
+}
+
+export interface AgentBrainRow {
+  id: string;
+  agent_id: string;
+  title: string;
+  content: string;
+  category: string;
+  metadata: Record<string, any>;
+  sort_order: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── Mapping functions: Row → TypeScript ────────────────────────────────────
@@ -258,6 +273,8 @@ export function customAgentFromRow(row: CustomAgentRow): CustomAgent {
     name: row.name,
     description: row.description,
     systemPrompt: row.system_prompt,
+    mainDocumentText: row.main_document_text || null,
+    mainDocumentFilename: row.main_document_filename || null,
     routingKeywords: row.routing_keywords || [],
     routingDescription: row.routing_description,
     handoffRules: row.handoff_rules || {},
@@ -276,6 +293,8 @@ export function customAgentToRow(agent: CustomAgent): CustomAgentRow {
     name: agent.name,
     description: agent.description,
     system_prompt: agent.systemPrompt,
+    main_document_text: agent.mainDocumentText,
+    main_document_filename: agent.mainDocumentFilename,
     routing_keywords: agent.routingKeywords,
     routing_description: agent.routingDescription,
     handoff_rules: agent.handoffRules,
@@ -312,5 +331,37 @@ export function topicToRow(topic: Topic): TopicRow {
     is_shared: topic.isShared,
     created_at: topic.createdAt.toISOString(),
     updated_at: topic.updatedAt.toISOString(),
+  };
+}
+
+// ─── Agent Brain mapping functions ───────────────────────────────────────────
+
+export function brainEntryFromRow(row: AgentBrainRow): BrainEntry {
+  return {
+    id: row.id,
+    agentId: row.agent_id,
+    title: row.title,
+    content: row.content,
+    category: row.category || 'general',
+    metadata: row.metadata || {},
+    sortOrder: row.sort_order || 0,
+    active: row.active,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+export function brainEntryToRow(entry: BrainEntry): AgentBrainRow {
+  return {
+    id: entry.id,
+    agent_id: entry.agentId,
+    title: entry.title,
+    content: entry.content,
+    category: entry.category,
+    metadata: entry.metadata,
+    sort_order: entry.sortOrder,
+    active: entry.active,
+    created_at: entry.createdAt.toISOString(),
+    updated_at: entry.updatedAt.toISOString(),
   };
 }

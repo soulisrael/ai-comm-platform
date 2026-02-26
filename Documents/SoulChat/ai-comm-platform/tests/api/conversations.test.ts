@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import path from 'path';
 import { createApp } from '../../src/api/server';
 import { ClaudeAPI } from '../../src/services/claude-api';
 
@@ -24,8 +23,7 @@ describe('Conversations API', () => {
   let convId: string;
 
   beforeEach(async () => {
-    const brainPath = path.resolve(__dirname, '../../brain');
-    const result = await createApp({ claude: createMockClaude(), brainPath, skipAuth: true });
+    const result = await createApp({ claude: createMockClaude(), skipAuth: true });
     app = result.app;
 
     // Create a conversation first
@@ -136,13 +134,13 @@ describe('Conversations API', () => {
       expect(res.body.success).toBe(true);
     });
 
-    it('should reject reply when conversation is active (AI-controlled)', async () => {
+    it('should allow reply in any conversation status', async () => {
       const res = await request(app)
         .post(`/api/conversations/${convId}/reply`)
         .send({ agentId: 'agent-1', message: 'Hi' });
 
-      expect(res.status).toBe(400);
-      expect(res.body.code).toBe('INVALID_STATUS');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
     });
   });
 
@@ -158,19 +156,19 @@ describe('Conversations API', () => {
   });
 
   describe('POST /api/conversations/:id/switch-agent', () => {
-    it('should switch agent type', async () => {
+    it('should switch to custom agent', async () => {
       const res = await request(app)
         .post(`/api/conversations/${convId}/switch-agent`)
-        .send({ agentType: 'sales' });
+        .send({ customAgentId: 'agent-123' });
 
       expect(res.status).toBe(200);
-      expect(res.body.agentType).toBe('sales');
+      expect(res.body.customAgentId).toBe('agent-123');
     });
 
-    it('should reject invalid agent type', async () => {
+    it('should reject when no customAgentId provided', async () => {
       const res = await request(app)
         .post(`/api/conversations/${convId}/switch-agent`)
-        .send({ agentType: 'invalid' });
+        .send({});
 
       expect(res.status).toBe(400);
     });

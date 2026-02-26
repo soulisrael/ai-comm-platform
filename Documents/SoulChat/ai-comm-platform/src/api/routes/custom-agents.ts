@@ -1,14 +1,31 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
+import mammoth from 'mammoth';
 import { CustomAgentRepository } from '../../database/repositories/custom-agent-repository';
-import { TopicRepository } from '../../database/repositories/topic-repository';
+import { BrainRepository } from '../../database/repositories/brain-repository';
 import { AgentRunner } from '../../agents/agent-runner';
 import { ClaudeAPI } from '../../services/claude-api';
 import { customAgentFromRow } from '../../database/db-types';
 import { AppError } from '../middleware/error-handler';
+import logger from '../../services/logger';
+
+const documentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (_req, file, cb) => {
+    const allowedExts = ['.txt', '.pdf', '.docx'];
+    const ext = file.originalname.toLowerCase().slice(file.originalname.lastIndexOf('.'));
+    if (allowedExts.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .txt, .pdf, and .docx files are accepted'));
+    }
+  },
+});
 
 export function createCustomAgentsRouter(
   agentRepo: CustomAgentRepository,
-  topicRepo: TopicRepository,
+  brainRepo: BrainRepository,
   agentRunner: AgentRunner,
   claude: ClaudeAPI
 ): Router {
@@ -32,17 +49,17 @@ export function createCustomAgentsRouter(
       agents = await agentRepo.findAll();
     }
 
-    // Get topic counts per agent
-    const allWithTopics = await agentRepo.getAllWithTopics();
-    const topicCountMap = new Map<string, number>();
-    for (const a of allWithTopics) {
-      topicCountMap.set(a.id, a.topics.length);
+    // Get brain entry counts per agent
+    const allWithBrain = await agentRepo.getAllWithBrain();
+    const brainCountMap = new Map<string, number>();
+    for (const a of allWithBrain) {
+      brainCountMap.set(a.id, a.brain.length);
     }
 
     res.json({
       agents: agents.map(row => ({
         ...customAgentFromRow(row),
-        topicCount: topicCountMap.get(row.id) || 0,
+        brainEntryCount: brainCountMap.get(row.id) || 0,
       })),
     });
   });
@@ -53,10 +70,10 @@ export function createCustomAgentsRouter(
     res.status(201).json(customAgentFromRow(row));
   });
 
-  // GET /:id — Get agent with full topics
+  // GET /:id — Get agent with full brain
   router.get('/:id', async (req: Request, res: Response) => {
     const id = param(req, 'id');
-    const agent = await agentRepo.getWithTopics(id);
+    const agent = await agentRepo.getWithBrain(id);
     if (!agent) {
       throw new AppError('Agent not found', 404, 'NOT_FOUND');
     }
@@ -74,7 +91,7 @@ export function createCustomAgentsRouter(
     res.json(customAgentFromRow(updated));
   });
 
-  // DELETE /:id — Delete agent
+  // DELETE /:id — Delete agent (brain entries cascade-deleted)
   router.delete('/:id', async (req: Request, res: Response) => {
     const id = param(req, 'id');
     const existing = await agentRepo.findById(id);
@@ -85,10 +102,10 @@ export function createCustomAgentsRouter(
     res.json({ success: true });
   });
 
-  // POST /:id/duplicate — Duplicate agent + topic links
+  // POST /:id/duplicate — Duplicate agent + brain entries
   router.post('/:id/duplicate', async (req: Request, res: Response) => {
     const id = param(req, 'id');
-    const source = await agentRepo.getWithTopics(id);
+    const source = await agentRepo.getWithBrain(id);
     if (!source) {
       throw new AppError('Agent not found', 404, 'NOT_FOUND');
     }
@@ -109,12 +126,10 @@ export function createCustomAgentsRouter(
       active: false,
     });
 
-    // Copy topic links
-    for (const topic of source.topics) {
-      await agentRepo.assignTopic(newRow.id, topic.id);
-    }
+    // Duplicate brain entries
+    await brainRepo.duplicateForAgent(id, newRow.id);
 
-    const result = await agentRepo.getWithTopics(newRow.id);
+    const result = await agentRepo.getWithBrain(newRow.id);
     res.status(201).json(result);
   });
 
@@ -162,51 +177,88 @@ export function createCustomAgentsRouter(
     res.json(customAgentFromRow(updated));
   });
 
-  // GET /:id/topics — List topics linked to agent
-  router.get('/:id/topics', async (req: Request, res: Response) => {
+  // POST /:id/upload-document — Upload main document (txt/pdf/docx)
+  router.post(
+    '/:id/upload-document',
+    (req: Request, res: Response, next: NextFunction) => {
+      documentUpload.single('file')(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+          return next(new AppError(
+            err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 10MB)' : err.message,
+            400,
+            'UPLOAD_ERROR'
+          ));
+        }
+        if (err) {
+          return next(new AppError(err.message, 400, 'UPLOAD_ERROR'));
+        }
+        next();
+      });
+    },
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const id = param(req, 'id');
+        const existing = await agentRepo.findById(id);
+        if (!existing) {
+          throw new AppError('Agent not found', 404, 'NOT_FOUND');
+        }
+
+        const file = req.file;
+        if (!file) {
+          throw new AppError('No file uploaded', 400, 'VALIDATION_ERROR');
+        }
+
+        const filename = file.originalname;
+        const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
+        let text: string;
+
+        if (ext === '.txt') {
+          text = file.buffer.toString('utf-8');
+        } else if (ext === '.docx') {
+          const result = await mammoth.extractRawText({ buffer: file.buffer });
+          text = result.value;
+        } else if (ext === '.pdf') {
+          // Dynamic import for pdf-parse
+          const pdfModule = await import('pdf-parse');
+          const pdfParse = (pdfModule as any).default || pdfModule;
+          const pdfData = await pdfParse(file.buffer);
+          text = pdfData.text;
+        } else {
+          throw new AppError('Unsupported file type', 400, 'VALIDATION_ERROR');
+        }
+
+        if (!text.trim()) {
+          throw new AppError('Document is empty', 400, 'VALIDATION_ERROR');
+        }
+
+        const updated = await agentRepo.updateDocument(id, text, filename);
+        logger.info(`Document uploaded for agent ${id}: ${filename} (${text.length} chars)`);
+
+        res.json({
+          success: true,
+          filename,
+          textLength: text.length,
+          agent: customAgentFromRow(updated),
+        });
+      } catch (err) {
+        if (err instanceof AppError) return next(err);
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        next(new AppError(message, 500, 'UPLOAD_ERROR'));
+      }
+    }
+  );
+
+  // DELETE /:id/document — Remove main document
+  router.delete('/:id/document', async (req: Request, res: Response) => {
     const id = param(req, 'id');
     const existing = await agentRepo.findById(id);
     if (!existing) {
       throw new AppError('Agent not found', 404, 'NOT_FOUND');
     }
-    const topics = await topicRepo.getByAgent(id);
-    res.json({ topics: topics.map(t => ({ ...t })) });
-  });
 
-  // POST /:id/topics — Link topic to agent
-  router.post('/:id/topics', async (req: Request, res: Response) => {
-    const id = param(req, 'id');
-    const existing = await agentRepo.findById(id);
-    if (!existing) {
-      throw new AppError('Agent not found', 404, 'NOT_FOUND');
-    }
-
-    const { topicId } = req.body || {};
-    if (!topicId) {
-      throw new AppError('topicId is required', 400, 'VALIDATION_ERROR');
-    }
-
-    const topic = await topicRepo.findById(topicId);
-    if (!topic) {
-      throw new AppError('Topic not found', 404, 'NOT_FOUND');
-    }
-
-    await agentRepo.assignTopic(id, topicId);
-    res.status(201).json({ success: true });
-  });
-
-  // DELETE /:id/topics/:topicId — Unlink topic from agent
-  router.delete('/:id/topics/:topicId', async (req: Request, res: Response) => {
-    const id = param(req, 'id');
-    const topicId = param(req, 'topicId');
-
-    const existing = await agentRepo.findById(id);
-    if (!existing) {
-      throw new AppError('Agent not found', 404, 'NOT_FOUND');
-    }
-
-    await agentRepo.removeTopic(id, topicId);
-    res.json({ success: true });
+    const updated = await agentRepo.updateDocument(id, null, null);
+    logger.info(`Document removed for agent ${id}`);
+    res.json({ success: true, agent: customAgentFromRow(updated) });
   });
 
   return router;

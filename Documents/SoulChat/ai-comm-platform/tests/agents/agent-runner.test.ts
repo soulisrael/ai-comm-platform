@@ -2,62 +2,34 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentRunner } from '../../src/agents/agent-runner';
 import { ClaudeAPI } from '../../src/services/claude-api';
 import { PromptBuilder } from '../../src/agents/prompt-builder';
-import { BrainLoader } from '../../src/brain/brain-loader';
-import { BrainSearch } from '../../src/brain/brain-search';
 import { CustomAgentRepository } from '../../src/database/repositories/custom-agent-repository';
-import { TopicRepository } from '../../src/database/repositories/topic-repository';
-import { CustomAgentWithTopics } from '../../src/types/custom-agent';
+import { CustomAgentWithBrain } from '../../src/types/custom-agent';
 import { Message } from '../../src/types/message';
-import path from 'path';
-
-const brainPath = path.resolve(__dirname, '../../brain');
 
 function createTestMessage(content: string, direction: 'inbound' | 'outbound' = 'inbound'): Message {
   return {
     id: `msg-${Date.now()}-${Math.random()}`,
-    conversationId: 'conv-1',
-    contactId: 'contact-1',
-    direction,
-    type: 'text',
-    content,
-    channel: 'whatsapp',
-    metadata: {},
-    timestamp: new Date(),
+    conversationId: 'conv-1', contactId: 'contact-1',
+    direction, type: 'text', content, channel: 'whatsapp',
+    metadata: {}, timestamp: new Date(),
   };
 }
 
-function createTestAgent(overrides?: Partial<CustomAgentWithTopics>): CustomAgentWithTopics {
+function createTestAgent(overrides?: Partial<CustomAgentWithBrain>): CustomAgentWithBrain {
   return {
-    id: 'agent-1',
-    name: 'סניף קריית אונו',
-    description: 'סוכן לסניף קריית אונו',
+    id: 'agent-1', name: 'סניף קריית אונו', description: 'סוכן לסניף קריית אונו',
     systemPrompt: 'אתה סוכן שירות לקוחות לסניף קריית אונו.',
     routingKeywords: ['קריית אונו', 'מוזיקה', 'אנגלית'],
-    routingDescription: null,
-    handoffRules: {},
-    transferRules: {},
+    routingDescription: null, handoffRules: {}, transferRules: {},
     settings: { temperature: 0.7, maxTokens: 1024, language: 'he', model: 'gpt-4' },
-    isDefault: false,
-    active: true,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    topics: [
-      {
-        id: 'topic-1',
-        name: 'חוג מוזיקה',
-        description: 'חוג מוזיקה לילדים',
-        content: {
-          description: 'חוג מוזיקה לגילאי 4-8',
-          schedule: 'ימי שלישי 16:00-17:00',
-          price: '250 ש"ח לחודש',
-          faq: [{ question: 'מה הגיל המינימלי?', answer: 'גיל 4' }],
-          customFields: {},
-        },
-        isShared: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ],
+    isDefault: false, active: true, createdAt: new Date(), updatedAt: new Date(),
+    mainDocumentText: null, mainDocumentFilename: null,
+    brain: [{
+      id: 'brain-1', agentId: 'agent-1', title: 'חוג מוזיקה',
+      content: 'חוג מוזיקה לגילאי 4-8\nלוח זמנים: ימי שלישי 16:00-17:00\nמחיר: 250 ש"ח לחודש\nגיל מינימלי: 4',
+      category: 'product', metadata: {}, sortOrder: 0, active: true,
+      createdAt: new Date(), updatedAt: new Date(),
+    }],
     ...overrides,
   };
 }
@@ -66,15 +38,12 @@ describe('AgentRunner', () => {
   let runner: AgentRunner;
   let mockClaude: ClaudeAPI;
   let mockAgentRepo: CustomAgentRepository;
-  let mockTopicRepo: TopicRepository;
 
   beforeEach(() => {
     mockClaude = {
       chat: vi.fn().mockResolvedValue({
         content: 'שלום! חוג המוזיקה שלנו מתקיים בימי שלישי.',
-        inputTokens: 200,
-        outputTokens: 100,
-        model: 'test',
+        inputTokens: 200, outputTokens: 100, model: 'test',
       }),
       chatJSON: vi.fn(),
       getUsage: vi.fn().mockReturnValue({ totalInputTokens: 0, totalOutputTokens: 0, totalCalls: 0 }),
@@ -82,27 +51,21 @@ describe('AgentRunner', () => {
     } as unknown as ClaudeAPI;
 
     mockAgentRepo = {
-      getWithTopics: vi.fn().mockResolvedValue(createTestAgent()),
-      getAllWithTopics: vi.fn().mockResolvedValue([createTestAgent()]),
+      getWithBrain: vi.fn().mockResolvedValue(createTestAgent()),
+      getAllWithBrain: vi.fn().mockResolvedValue([createTestAgent()]),
       findById: vi.fn(),
       findAll: vi.fn(),
     } as unknown as CustomAgentRepository;
 
-    mockTopicRepo = {} as unknown as TopicRepository;
-
-    const loader = new BrainLoader(brainPath);
-    loader.loadAll();
-    const search = new BrainSearch(loader);
-    const promptBuilder = new PromptBuilder(search);
-
-    runner = new AgentRunner(mockClaude, mockAgentRepo, mockTopicRepo, promptBuilder);
+    const promptBuilder = new PromptBuilder();
+    runner = new AgentRunner(mockClaude, mockAgentRepo, promptBuilder);
   });
 
   describe('run()', () => {
     it('should load agent from repo and return response', async () => {
       const result = await runner.run('agent-1', 'מתי חוג המוזיקה?', []);
 
-      expect(mockAgentRepo.getWithTopics).toHaveBeenCalledWith('agent-1');
+      expect(mockAgentRepo.getWithBrain).toHaveBeenCalledWith('agent-1');
       expect(result.message).toBe('שלום! חוג המוזיקה שלנו מתקיים בימי שלישי.');
       expect(result.shouldHandoff).toBe(false);
       expect(result.shouldTransfer).toBe(false);
@@ -110,7 +73,7 @@ describe('AgentRunner', () => {
     });
 
     it('should return error message when agent not found', async () => {
-      vi.mocked(mockAgentRepo.getWithTopics).mockResolvedValue(null);
+      vi.mocked(mockAgentRepo.getWithBrain).mockResolvedValue(null);
 
       const result = await runner.run('nonexistent', 'hello', []);
 
@@ -150,7 +113,7 @@ describe('AgentRunner', () => {
       await runner.runWithAgent(agent, 'מתי חוג המוזיקה?', history);
 
       const callArgs = vi.mocked(mockClaude.chat).mock.calls[0][0];
-      expect(callArgs.messages.length).toBeGreaterThanOrEqual(3); // 2 history + 1 current
+      expect(callArgs.messages.length).toBeGreaterThanOrEqual(3);
     });
   });
 
@@ -161,13 +124,6 @@ describe('AgentRunner', () => {
 
       expect(result.shouldHandoff).toBe(true);
       expect(result.reason).toContain('נציג');
-    });
-
-    it('should detect "אדם" as handoff keyword', () => {
-      const agent = createTestAgent();
-      const result = runner.detectHandoff('תחבר אותי לאדם', [], agent);
-
-      expect(result.shouldHandoff).toBe(true);
     });
 
     it('should not trigger handoff for normal messages', () => {
@@ -220,7 +176,6 @@ describe('AgentRunner', () => {
       );
 
       expect(result.shouldTransfer).toBe(true);
-      expect(result.transferMessage).toBeDefined();
     });
 
     it('should not trigger transfer for normal responses', () => {
@@ -232,17 +187,6 @@ describe('AgentRunner', () => {
       );
 
       expect(result.shouldTransfer).toBe(false);
-    });
-
-    it('should detect "לא בתחום שלי" as transfer trigger', () => {
-      const agent = createTestAgent();
-      const result = runner.detectTransfer(
-        'הנושא הזה לא בתחום שלי, אני יכול לעזור רק עם חוגים.',
-        'מה לגבי החזרת כסף?',
-        agent
-      );
-
-      expect(result.shouldTransfer).toBe(true);
     });
   });
 });

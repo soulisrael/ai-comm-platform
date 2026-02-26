@@ -5,6 +5,7 @@ import {
   StickyNote, ChevronDown, Plus, Bot,
 } from 'lucide-react';
 import { useConversations, useConversation, useConversationActions } from '../hooks/useConversations';
+import { useCustomAgents } from '../hooks/useCustomAgents';
 import { useAuth } from '../contexts/AuthContext';
 import { cn, formatRelativeTime, truncate } from '../lib/utils';
 import { api } from '../lib/api-client';
@@ -19,11 +20,11 @@ import type { ConversationStatus, Conversation, Message } from '../lib/types';
 import toast from 'react-hot-toast';
 
 const STATUS_TABS: { label: string; value: ConversationStatus | 'all' }[] = [
-  { label: 'All', value: 'all' },
-  { label: 'Active', value: 'active' },
-  { label: 'Waiting', value: 'waiting' },
-  { label: 'Handoff', value: 'handoff' },
-  { label: 'Closed', value: 'closed' },
+  { label: 'הכל', value: 'all' },
+  { label: 'פעיל', value: 'active' },
+  { label: 'המתנה', value: 'waiting' },
+  { label: 'העברה', value: 'handoff' },
+  { label: 'סגור', value: 'closed' },
 ];
 
 interface IncomingResponse {
@@ -49,6 +50,10 @@ export function Conversations() {
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoConvId, setDemoConvId] = useState<string | null>(null);
   const demoEndRef = useRef<HTMLDivElement>(null);
+
+  // Custom agents
+  const { data: customAgentsData } = useCustomAgents({ active: true });
+  const customAgents = customAgentsData?.agents || [];
 
   const { data: listData, isLoading: listLoading } = useConversations(
     statusFilter === 'all' ? { limit: 50 } : { status: statusFilter as ConversationStatus, limit: 50 }
@@ -129,7 +134,7 @@ export function Conversations() {
 
       setDemoMessages(prev => [...prev, botMsg]);
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to send message');
+      toast.error(err?.message || 'שגיאה בשליחת ההודעה');
     } finally {
       setDemoLoading(false);
     }
@@ -139,40 +144,41 @@ export function Conversations() {
     if (!selectedId) return;
     try {
       await actions.takeover.mutateAsync({ id: selectedId, humanAgentId: user?.id || 'agent-1' });
-      toast.success('Conversation taken over');
-    } catch { toast.error('Failed to take over'); }
+      toast.success('השיחה נלקחה בהצלחה');
+    } catch { toast.error('שגיאה בקבלת שליטה'); }
   };
 
   const handlePause = async () => {
     if (!selectedId) return;
     try {
       await actions.pause.mutateAsync(selectedId);
-      toast.success('AI paused');
-    } catch { toast.error('Failed to pause'); }
+      toast.success('ה-AI הושהה');
+    } catch { toast.error('שגיאה בהשהיה'); }
   };
 
   const handleResume = async () => {
     if (!selectedId) return;
     try {
       await actions.resume.mutateAsync(selectedId);
-      toast.success('AI resumed');
-    } catch { toast.error('Failed to resume'); }
+      toast.success('ה-AI חזר לפעולה');
+    } catch { toast.error('שגיאה בהחזרת ה-AI'); }
   };
 
   const handleClose = async () => {
     if (!selectedId) return;
     try {
       await actions.close.mutateAsync({ id: selectedId, reason: 'resolved' });
-      toast.success('Conversation closed');
-    } catch { toast.error('Failed to close'); }
+      toast.success('השיחה נסגרה');
+    } catch { toast.error('שגיאה בסגירת השיחה'); }
   };
 
-  const handleSwitchAgent = async (agentType: string) => {
+  const handleSwitchAgent = async (customAgentId: string) => {
     if (!selectedId) return;
     try {
-      await actions.switchAgent.mutateAsync({ id: selectedId, agentType });
-      toast.success(`Switched to ${agentType}`);
-    } catch { toast.error('Failed to switch agent'); }
+      await actions.switchAgent.mutateAsync({ id: selectedId, customAgentId });
+      const label = customAgents.find(a => a.id === customAgentId)?.name || customAgentId;
+      toast.success(`הוחלף לסוכן: ${label}`);
+    } catch { toast.error('שגיאה בהחלפת סוכן'); }
   };
 
   const handleSendReply = async () => {
@@ -180,23 +186,34 @@ export function Conversations() {
     try {
       await actions.reply.mutateAsync({ id: selectedId, agentId: user?.id || 'agent-1', message: replyText });
       setReplyText('');
-    } catch { toast.error('Failed to send reply'); }
+    } catch { toast.error('שגיאה בשליחת תגובה'); }
   };
 
-  const isHumanMode = activeConv?.status === 'human_active' || activeConv?.status === 'handoff';
+  const handleReopen = async () => {
+    if (!selectedId) return;
+    try {
+      await actions.reopen.mutateAsync(selectedId);
+      toast.success('השיחה נפתחה מחדש');
+    } catch { toast.error('שגיאה בפתיחת השיחה'); }
+  };
+
+  // Resolve custom agent name for current conversation
+  const activeCustomAgentName = activeConv?.customAgentId
+    ? customAgents.find(a => a.id === activeConv.customAgentId)?.name
+    : undefined;
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">
-      {/* Left Panel — Conversation List */}
-      <div className="w-80 border-r border-gray-200 bg-white flex flex-col flex-shrink-0">
+      {/* Left Panel -- Conversation List */}
+      <div className="w-80 border-e border-gray-200 bg-white flex flex-col flex-shrink-0">
         <div className="p-3 border-b border-gray-100 space-y-2">
           <div className="flex gap-2">
             <div className="flex-1">
-              <SearchInput value={search} onChange={setSearch} placeholder="Search conversations..." />
+              <SearchInput value={search} onChange={setSearch} placeholder="חיפוש שיחות..." />
             </div>
             <button
               onClick={startDemo}
-              title="Start demo conversation"
+              title="התחל שיחת דמו"
               className={cn(
                 'flex-shrink-0 p-2 rounded-lg transition-colors',
                 demoMode
@@ -229,7 +246,7 @@ export function Conversations() {
           {listLoading ? (
             <div className="flex justify-center py-8"><LoadingSpinner /></div>
           ) : filtered.length === 0 ? (
-            <EmptyState title="No conversations" description="No conversations match your filters" />
+            <EmptyState title="אין שיחות" description="אין שיחות התואמות את הסינון" />
           ) : (
             filtered.map(conv => (
               <ConversationCard
@@ -237,29 +254,34 @@ export function Conversations() {
                 conversation={conv}
                 active={conv.id === selectedId}
                 onClick={() => selectConversation(conv.id)}
+                customAgentName={
+                  conv.customAgentId
+                    ? customAgents.find(a => a.id === conv.customAgentId)?.name
+                    : undefined
+                }
               />
             ))
           )}
         </div>
       </div>
 
-      {/* Center Panel — Chat View */}
+      {/* Center Panel -- Chat View */}
       <div className="flex-1 flex flex-col min-w-0 bg-gray-50">
         {demoMode ? (
           <>
             {/* Demo toolbar */}
             <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200">
               <Bot size={16} className="text-primary-600" />
-              <span className="text-sm font-medium text-gray-900">Demo Conversation</span>
+              <span className="text-sm font-medium text-gray-900">שיחת דמו</span>
               {demoConvId && (
-                <span className="text-xs text-gray-400 ml-1">{demoConvId.slice(0, 12)}...</span>
+                <span className="text-xs text-gray-400 ms-1">{demoConvId.slice(0, 12)}...</span>
               )}
               <div className="flex-1" />
               <button
                 onClick={() => { setDemoMode(false); setSearchParams({}); }}
                 className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
               >
-                <XIcon size={14} /> Close Demo
+                <XIcon size={14} /> סגור דמו
               </button>
             </div>
 
@@ -268,7 +290,7 @@ export function Conversations() {
               {demoMessages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
                   <Bot size={40} className="mb-2 text-gray-300" />
-                  <p className="text-sm">Send a message to test the AI agents</p>
+                  <p className="text-sm">שלח הודעה לבדיקת סוכני ה-AI</p>
                 </div>
               )}
               {demoMessages.map(msg => (
@@ -299,7 +321,7 @@ export function Conversations() {
                   value={demoInput}
                   onChange={e => setDemoInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendDemoMessage()}
-                  placeholder="Type a message to test..."
+                  placeholder="הקלד הודעה לבדיקה..."
                   disabled={demoLoading}
                   className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
                   autoFocus
@@ -316,7 +338,7 @@ export function Conversations() {
           </>
         ) : !selectedId ? (
           <div className="flex-1 flex items-center justify-center">
-            <EmptyState title="Select a conversation" description="Choose a conversation from the list, or click + to start a demo" />
+            <EmptyState title="בחר שיחה" description="בחר שיחה מהרשימה, או לחץ + כדי להתחיל דמו" />
           </div>
         ) : convLoading ? (
           <div className="flex-1 flex items-center justify-center"><LoadingSpinner size={32} /></div>
@@ -325,34 +347,49 @@ export function Conversations() {
             {/* Toolbar */}
             <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200 flex-wrap">
               <StatusBadge status={activeConv.status} />
-              <AgentBadge agent={activeConv.currentAgent} />
+              <AgentBadge agent={activeConv.currentAgent} customAgentName={activeCustomAgentName} />
+              {activeCustomAgentName && (
+                <span className="text-xs text-purple-600 font-medium">({activeCustomAgentName})</span>
+              )}
               <div className="flex-1" />
 
+              {activeConv.status === 'closed' && (
+                <button onClick={handleReopen} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100">
+                  <RefreshCw size={14} /> פתח שיחה
+                </button>
+              )}
               {activeConv.status !== 'human_active' && activeConv.status !== 'closed' && (
                 <button onClick={handleTakeOver} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100">
-                  <Hand size={14} /> Take Over
+                  <Hand size={14} /> קח שליטה
                 </button>
               )}
               {activeConv.status === 'active' && (
                 <button onClick={handlePause} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-yellow-700 bg-yellow-50 rounded-lg hover:bg-yellow-100">
-                  <Pause size={14} /> Pause AI
+                  <Pause size={14} /> השהה AI
                 </button>
               )}
               {(activeConv.status === 'paused' || activeConv.status === 'human_active') && (
                 <button onClick={handleResume} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100">
-                  <Play size={14} /> Resume AI
+                  <Play size={14} /> החזר AI
                 </button>
               )}
 
               {/* Switch Agent dropdown */}
               <div className="relative group">
                 <button className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">
-                  <RefreshCw size={14} /> Switch Agent <ChevronDown size={12} />
+                  <RefreshCw size={14} /> החלף סוכן <ChevronDown size={12} />
                 </button>
-                <div className="absolute right-0 top-full mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg hidden group-hover:block z-10">
-                  {['sales', 'support', 'trial_meeting'].map(a => (
-                    <button key={a} onClick={() => handleSwitchAgent(a)} className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 capitalize">
-                      {a.replace('_', ' ')}
+                <div className="absolute end-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg hidden group-hover:block z-10">
+                  {customAgents.length === 0 && (
+                    <div className="px-3 py-2 text-sm text-gray-400">אין סוכנים פעילים</div>
+                  )}
+                  {customAgents.map(agent => (
+                    <button
+                      key={agent.id}
+                      onClick={() => handleSwitchAgent(agent.id)}
+                      className="block w-full text-start px-3 py-2 text-sm hover:bg-purple-50 text-purple-700"
+                    >
+                      {agent.name}
                     </button>
                   ))}
                 </div>
@@ -360,7 +397,7 @@ export function Conversations() {
 
               {activeConv.status !== 'closed' && (
                 <button onClick={handleClose} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">
-                  <XIcon size={14} /> Close
+                  <XIcon size={14} /> סגור
                 </button>
               )}
             </div>
@@ -373,59 +410,57 @@ export function Conversations() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Reply input (when human mode) */}
-            {isHumanMode && (
-              <div className="p-3 bg-white border-t border-gray-200">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={replyText}
-                    onChange={e => setReplyText(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendReply()}
-                    placeholder="Type a reply..."
-                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                  <button
-                    onClick={handleSendReply}
-                    disabled={!replyText.trim()}
-                    className="p-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
-                  >
-                    <SendIcon size={16} />
-                  </button>
-                </div>
+            {/* Reply input — always visible */}
+            <div className="p-3 bg-white border-t border-gray-200">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendReply()}
+                  placeholder="הקלד תגובה..."
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+                <button
+                  onClick={handleSendReply}
+                  disabled={!replyText.trim()}
+                  className="p-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                >
+                  <SendIcon size={16} />
+                </button>
               </div>
-            )}
+            </div>
           </>
         ) : null}
       </div>
 
-      {/* Right Panel — Context */}
+      {/* Right Panel -- Context */}
       {activeConv && (
-        <div className="w-72 border-l border-gray-200 bg-white flex-shrink-0 overflow-y-auto hidden xl:block">
+        <div className="w-72 border-s border-gray-200 bg-white flex-shrink-0 overflow-y-auto hidden xl:block">
           <div className="p-4 space-y-5">
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Contact</h3>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">איש קשר</h3>
               <p className="text-sm font-medium text-gray-900">{activeConv.contactId}</p>
               <p className="text-xs text-gray-500">{activeConv.channel}</p>
             </div>
 
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Conversation</h3>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">שיחה</h3>
               <div className="space-y-1.5 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Status</span>
+                  <span className="text-gray-500">סטטוס</span>
                   <StatusBadge status={activeConv.status} />
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Agent</span>
-                  <AgentBadge agent={activeConv.currentAgent} />
+                  <span className="text-gray-500">סוכן</span>
+                  <AgentBadge agent={activeConv.currentAgent} customAgentName={activeCustomAgentName} />
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Messages</span>
+                  <span className="text-gray-500">הודעות</span>
                   <span className="text-gray-900">{activeConv.messages.length}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Started</span>
+                  <span className="text-gray-500">התחלה</span>
                   <span className="text-gray-900 text-xs">{formatRelativeTime(activeConv.startedAt)}</span>
                 </div>
               </div>
@@ -433,29 +468,29 @@ export function Conversations() {
 
             {activeConv.context && (
               <div>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Context</h3>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">הקשר</h3>
                 <div className="space-y-1.5 text-sm">
                   {activeConv.context.intent && (
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Intent</span>
+                      <span className="text-gray-500">כוונה</span>
                       <span className="text-gray-900">{activeConv.context.intent}</span>
                     </div>
                   )}
                   {activeConv.context.sentiment && (
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Sentiment</span>
+                      <span className="text-gray-500">סנטימנט</span>
                       <span className="text-gray-900">{activeConv.context.sentiment}</span>
                     </div>
                   )}
                   {activeConv.context.leadScore !== null && activeConv.context.leadScore !== undefined && (
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Lead Score</span>
+                      <span className="text-gray-500">ציון ליד</span>
                       <span className="text-gray-900 font-medium">{activeConv.context.leadScore}</span>
                     </div>
                   )}
                   {activeConv.context.language && (
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Language</span>
+                      <span className="text-gray-500">שפה</span>
                       <span className="text-gray-900">{activeConv.context.language}</span>
                     </div>
                   )}
@@ -469,14 +504,24 @@ export function Conversations() {
   );
 }
 
-function ConversationCard({ conversation: c, active, onClick }: { conversation: Conversation; active: boolean; onClick: () => void }) {
+function ConversationCard({
+  conversation: c,
+  active,
+  onClick,
+  customAgentName,
+}: {
+  conversation: Conversation;
+  active: boolean;
+  onClick: () => void;
+  customAgentName?: string;
+}) {
   const messages = c.messages || [];
   const lastMsg = messages[messages.length - 1];
   return (
     <button
       onClick={onClick}
       className={cn(
-        'w-full text-left px-3 py-3 hover:bg-gray-50 transition-colors',
+        'w-full text-start px-3 py-3 hover:bg-gray-50 transition-colors',
         active && 'bg-primary-50 hover:bg-primary-50',
         c.status === 'handoff' && !active && 'bg-red-50/50'
       )}
@@ -488,15 +533,18 @@ function ConversationCard({ conversation: c, active, onClick }: { conversation: 
       </div>
       <div className="flex items-center gap-2">
         <p className="text-xs text-gray-500 truncate flex-1">
-          {lastMsg ? truncate(lastMsg.content, 50) : 'No messages'}
+          {lastMsg ? truncate(lastMsg.content, 50) : 'אין הודעות'}
         </p>
         <StatusBadge status={c.status} />
       </div>
-      {c.currentAgent && (
-        <div className="mt-1">
-          <AgentBadge agent={c.currentAgent} />
-        </div>
-      )}
+      <div className="flex items-center gap-1 mt-1">
+        {c.currentAgent && (
+          <AgentBadge agent={c.currentAgent} customAgentName={customAgentName} />
+        )}
+        {customAgentName && !c.currentAgent && (
+          <AgentBadge agent={null} customAgentName={customAgentName} />
+        )}
+      </div>
     </button>
   );
 }

@@ -243,12 +243,9 @@ export function createConversationsRouter(engine: ConversationEngine): Router {
       throw new AppError('Conversation not found', 404, 'NOT_FOUND');
     }
 
-    if (!['human_active', 'handoff'].includes(conversation.status)) {
-      throw new AppError(
-        'Can only reply when status is human_active or handoff',
-        400,
-        'INVALID_STATUS'
-      );
+    // Auto-reopen closed conversations when a reply is sent
+    if (conversation.status === 'closed') {
+      convManager.reopenConversation(id);
     }
 
     const { agentId, message } = req.body || {};
@@ -308,6 +305,24 @@ export function createConversationsRouter(engine: ConversationEngine): Router {
 
   /**
    * @swagger
+   * /api/conversations/{id}/reopen:
+   *   post:
+   *     summary: Reopen a closed conversation
+   *     tags: [Conversations]
+   */
+  router.post('/:id/reopen', (req: Request, res: Response) => {
+    const id = param(req, 'id');
+    const conversation = convManager.getConversation(id);
+    if (!conversation) {
+      throw new AppError('Conversation not found', 404, 'NOT_FOUND');
+    }
+
+    convManager.reopenConversation(id);
+    res.json({ success: true, status: 'active' });
+  });
+
+  /**
+   * @swagger
    * /api/conversations/{id}/switch-agent:
    *   post:
    *     summary: Switch active AI agent type
@@ -320,24 +335,14 @@ export function createConversationsRouter(engine: ConversationEngine): Router {
       throw new AppError('Conversation not found', 404, 'NOT_FOUND');
     }
 
-    const { agentType, customAgentId } = req.body;
+    const { customAgentId } = req.body;
 
-    // If customAgentId provided, switch to custom agent
-    if (customAgentId) {
-      orchestrator.switchCustomAgent(conversation, customAgentId);
-      res.json({ success: true, customAgentId });
-      return;
+    if (!customAgentId) {
+      throw new AppError('customAgentId is required', 400, 'VALIDATION_ERROR');
     }
 
-    const validAgents: AgentType[] = ['sales', 'support', 'trial_meeting'];
-    if (!agentType || !validAgents.includes(agentType)) {
-      throw new AppError(`agentType must be one of: ${validAgents.join(', ')}`, 400, 'VALIDATION_ERROR');
-    }
-
-    orchestrator.switchAgent(conversation, agentType);
-    convManager.updateAgent(id, agentType);
-
-    res.json({ success: true, agentType });
+    orchestrator.switchCustomAgent(conversation, customAgentId);
+    res.json({ success: true, customAgentId });
   });
 
   /**

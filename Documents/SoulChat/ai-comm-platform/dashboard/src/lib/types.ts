@@ -45,6 +45,7 @@ export interface Conversation {
   channel: ChannelType;
   status: ConversationStatus;
   currentAgent: AgentType | null;
+  customAgentId?: string;
   messages: Message[];
   messageCount?: number;
   context: ConversationContext;
@@ -69,10 +70,79 @@ export interface AnalyticsOverview {
   messages: { total: number; today: number };
 }
 
-export interface BrainModule {
+// Custom Agent types
+export interface CustomAgentSettings {
+  temperature: number;
+  maxTokens: number;
+  language: string;
+  model: string;
+}
+
+export interface CustomAgent {
+  id: string;
   name: string;
+  description: string | null;
+  systemPrompt: string | null;
+  mainDocumentText: string | null;
+  mainDocumentFilename: string | null;
+  routingKeywords: string[];
+  routingDescription: string | null;
+  handoffRules: Record<string, unknown>;
+  transferRules: Record<string, unknown>;
+  settings: CustomAgentSettings;
+  isDefault: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Brain Entry types (per-agent knowledge)
+export interface BrainEntry {
+  id: string;
+  agentId: string;
+  title: string;
+  content: string;
   category: string;
-  subcategory: string;
-  entryCount: number;
-  data: unknown;
+  metadata: Record<string, any>;
+  sortOrder: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomAgentWithBrain extends CustomAgent {
+  brain: BrainEntry[];
+}
+
+// Legacy alias
+export type CustomAgentWithTopics = CustomAgentWithBrain;
+
+// Topic types (kept for backward compatibility)
+export interface TopicFAQ {
+  question: string;
+  answer: string;
+}
+
+export interface TopicContent {
+  description: string;
+  details?: string;
+  schedule?: string;
+  price?: string;
+  faq: TopicFAQ[];
+  customFields: Record<string, unknown>;
+  images?: string[];
+}
+
+export interface Topic {
+  id: string;
+  name: string;
+  description: string | null;
+  content: TopicContent;
+  isShared: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TopicWithAgents extends Topic {
+  agents?: { id: string; name: string }[];
 }

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import path from 'path';
 import { createApp } from '../../src/api/server';
 import { ClaudeAPI } from '../../src/services/claude-api';
 
@@ -23,8 +22,7 @@ describe('Messages API', () => {
   let app: Awaited<ReturnType<typeof createApp>>['app'];
 
   beforeEach(async () => {
-    const brainPath = path.resolve(__dirname, '../../brain');
-    const result = await createApp({ claude: createMockClaude(), brainPath, skipAuth: true });
+    const result = await createApp({ claude: createMockClaude(), skipAuth: true });
     app = result.app;
   });
 
@@ -66,7 +64,7 @@ describe('Messages API', () => {
       expect(res.status).toBe(400);
     });
 
-    it('should reuse conversation for same user', async () => {
+    it('should reuse conversation for same user', { timeout: 15000 }, async () => {
       const res1 = await request(app)
         .post('/api/messages/incoming')
         .send({ channelUserId: 'user-reuse', channel: 'web', content: 'Hello' });

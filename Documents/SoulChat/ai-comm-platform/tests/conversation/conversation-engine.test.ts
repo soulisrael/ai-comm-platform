@@ -1,13 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import path from 'path';
 import { ConversationEngine } from '../../src/conversation/conversation-engine';
 import { ConversationManager } from '../../src/conversation/conversation-manager';
 import { ContactManager } from '../../src/conversation/contact-manager';
 import { AgentOrchestrator } from '../../src/agents/agent-orchestrator';
 import { ClaudeAPI } from '../../src/services/claude-api';
-import { BrainLoader } from '../../src/brain/brain-loader';
+import { CustomAgentRepository } from '../../src/database/repositories/custom-agent-repository';
+import { CustomAgentWithBrain } from '../../src/types/custom-agent';
 
-const brainPath = path.resolve(__dirname, '../../brain');
+function createTestAgents(): CustomAgentWithBrain[] {
+  return [
+    {
+      id: 'agent-default', name: 'סוכן כללי', description: 'default',
+      systemPrompt: null, routingKeywords: [], routingDescription: null,
+      handoffRules: {}, transferRules: {},
+      settings: { temperature: 0.7, maxTokens: 1024, language: 'he', model: 'gpt-4' },
+      isDefault: true, active: true, createdAt: new Date(), updatedAt: new Date(),
+      mainDocumentText: null, mainDocumentFilename: null,
+      brain: [],
+    },
+  ];
+}
 
 describe('ConversationEngine', () => {
   let engine: ConversationEngine;
@@ -22,17 +34,30 @@ describe('ConversationEngine', () => {
         inputTokens: 200, outputTokens: 100, model: 'test',
       }),
       chatJSON: vi.fn().mockResolvedValue({
-        data: { intent: 'sales', confidence: 0.9, language: 'English', sentiment: 'positive', summary: 'Sales inquiry' },
+        data: { agentId: 'agent-default', confidence: 0.9, reasoning: 'Default routing' },
         inputTokens: 100, outputTokens: 50, model: 'test',
       }),
       getUsage: vi.fn().mockReturnValue({ totalInputTokens: 0, totalOutputTokens: 0, totalCalls: 0 }),
       resetUsage: vi.fn(),
     } as unknown as ClaudeAPI;
 
-    const brainLoader = new BrainLoader(brainPath);
-    brainLoader.loadAll();
+    const testAgents = createTestAgents();
+    const mockAgentRepo = {
+      getAllWithBrain: vi.fn().mockResolvedValue(testAgents),
+      getAllWithTopics: vi.fn().mockResolvedValue(testAgents),
+      getWithBrain: vi.fn().mockImplementation(async (id: string) =>
+        testAgents.find(a => a.id === id) || null
+      ),
+      getWithTopics: vi.fn().mockImplementation(async (id: string) =>
+        testAgents.find(a => a.id === id) || null
+      ),
+      findById: vi.fn().mockImplementation(async (id: string) =>
+        testAgents.find(a => a.id === id) || null
+      ),
+      findAll: vi.fn().mockResolvedValue(testAgents),
+    } as unknown as CustomAgentRepository;
 
-    const orchestrator = new AgentOrchestrator(mockClaude, brainLoader);
+    const orchestrator = new AgentOrchestrator(mockClaude, mockAgentRepo);
     conversationManager = new ConversationManager();
     contactManager = new ContactManager();
     engine = new ConversationEngine(orchestrator, conversationManager, contactManager);
@@ -92,19 +117,7 @@ describe('ConversationEngine', () => {
       const contacts = contactManager.getAllContacts();
       const conv = conversationManager.getActiveConversation(contacts[0].id);
       expect(conv).toBeDefined();
-      // Each handleIncomingMessage stores: 1 inbound + 1 outbound
       expect(conv!.messages.length).toBeGreaterThanOrEqual(4);
-    });
-
-    it('should include routing decision for new conversations', async () => {
-      const result = await engine.handleIncomingMessage({
-        content: 'I want to buy something',
-        channelUserId: 'user-001',
-        channel: 'whatsapp',
-      });
-
-      expect(result.routingDecision).toBeDefined();
-      expect(result.routingDecision!.selectedAgent).toBe('sales');
     });
 
     it('should emit conversation:started event', async () => {

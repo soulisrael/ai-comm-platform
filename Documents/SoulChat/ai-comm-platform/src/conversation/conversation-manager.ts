@@ -126,6 +126,21 @@ export class ConversationManager {
     return conversation;
   }
 
+  reopenConversation(conversationId: string): Conversation {
+    const conversation = this.store.get(conversationId);
+    if (!conversation) {
+      throw new Error(`Conversation not found: ${conversationId}`);
+    }
+
+    conversation.status = 'active';
+    conversation.updatedAt = new Date();
+    delete conversation.context.customFields.closeReason;
+    this.store.update(conversationId, conversation);
+
+    logger.info(`Conversation reopened: ${conversationId}`);
+    return conversation;
+  }
+
   getConversationHistory(conversationId: string, limit?: number): Message[] {
     const conversation = this.store.get(conversationId);
     if (!conversation) return [];

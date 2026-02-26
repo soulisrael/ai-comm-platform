@@ -3,7 +3,8 @@ import request from 'supertest';
 import express from 'express';
 import { createCustomAgentsRouter } from '../../src/api/routes/custom-agents';
 import { errorHandler } from '../../src/api/middleware/error-handler';
-import { CustomAgentRow, TopicRow } from '../../src/database/db-types';
+import { CustomAgentRow, AgentBrainRow } from '../../src/database/db-types';
+import { BrainEntry } from '../../src/types/custom-agent';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,8 @@ const agentRow: CustomAgentRow = {
   name: 'Sales Agent',
   description: 'Handles sales',
   system_prompt: 'You are a sales agent.',
+  main_document_text: null,
+  main_document_filename: null,
   routing_keywords: ['buy', 'price'],
   routing_description: 'Handles sales inquiries',
   handoff_rules: {},
@@ -25,14 +28,17 @@ const agentRow: CustomAgentRow = {
   updated_at: now,
 };
 
-const topicRow: TopicRow = {
-  id: 'topic-1',
-  name: 'Pricing',
-  description: 'Pricing info',
-  content: { description: 'Our prices', faq: [], customFields: {} },
-  is_shared: false,
-  created_at: now,
-  updated_at: now,
+const brainEntry: BrainEntry = {
+  id: 'brain-1',
+  agentId: 'agent-1',
+  title: 'Pricing',
+  content: 'Our prices start at $10/month.',
+  category: 'product',
+  metadata: {},
+  sortOrder: 0,
+  active: true,
+  createdAt: new Date(now),
+  updatedAt: new Date(now),
 };
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
@@ -43,21 +49,17 @@ function createMockAgentRepo() {
     findAll: vi.fn().mockResolvedValue([agentRow]),
     deleteById: vi.fn().mockResolvedValue(true),
     getActive: vi.fn().mockResolvedValue([agentRow]),
-    getWithTopics: vi.fn().mockResolvedValue({ ...agentRow, topics: [topicRow] }),
-    getAllWithTopics: vi.fn().mockResolvedValue([{ ...agentRow, topics: [topicRow] }]),
+    getWithBrain: vi.fn().mockResolvedValue({ ...agentRow, name: 'Sales Agent', brain: [brainEntry] }),
+    getAllWithBrain: vi.fn().mockResolvedValue([{ ...agentRow, name: 'Sales Agent', brain: [brainEntry] }]),
     createAgent: vi.fn().mockResolvedValue(agentRow),
     updateAgent: vi.fn().mockResolvedValue(agentRow),
-    assignTopic: vi.fn().mockResolvedValue(undefined),
-    removeTopic: vi.fn().mockResolvedValue(undefined),
   };
 }
 
-function createMockTopicRepo() {
+function createMockBrainRepo() {
   return {
-    findById: vi.fn().mockResolvedValue(topicRow),
-    findAll: vi.fn().mockResolvedValue([topicRow]),
-    getByAgent: vi.fn().mockResolvedValue([topicRow]),
-    getShared: vi.fn().mockResolvedValue([topicRow]),
+    getByAgent: vi.fn().mockResolvedValue([brainEntry]),
+    duplicateForAgent: vi.fn().mockResolvedValue([brainEntry]),
   };
 }
 
@@ -78,15 +80,15 @@ function createMockClaude() {
 
 function buildApp(
   agentRepo = createMockAgentRepo(),
-  topicRepo = createMockTopicRepo(),
+  brainRepo = createMockBrainRepo(),
   runner = createMockRunner(),
   claude = createMockClaude()
 ) {
   const app = express();
   app.use(express.json());
-  app.use('/api/custom-agents', createCustomAgentsRouter(agentRepo as any, topicRepo as any, runner as any, claude));
+  app.use('/api/custom-agents', createCustomAgentsRouter(agentRepo as any, brainRepo as any, runner as any, claude));
   app.use(errorHandler);
-  return { app, agentRepo, topicRepo, runner };
+  return { app, agentRepo, brainRepo, runner };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -94,24 +96,24 @@ function buildApp(
 describe('Custom Agents API', () => {
   let app: express.Express;
   let agentRepo: ReturnType<typeof createMockAgentRepo>;
-  let topicRepo: ReturnType<typeof createMockTopicRepo>;
+  let brainRepo: ReturnType<typeof createMockBrainRepo>;
   let runner: ReturnType<typeof createMockRunner>;
 
   beforeEach(() => {
     const built = buildApp();
     app = built.app;
     agentRepo = built.agentRepo;
-    topicRepo = built.topicRepo;
+    brainRepo = built.brainRepo;
     runner = built.runner;
   });
 
   describe('GET /api/custom-agents', () => {
-    it('should list all agents with topic counts', async () => {
+    it('should list all agents with brain entry counts', async () => {
       const res = await request(app).get('/api/custom-agents');
       expect(res.status).toBe(200);
       expect(res.body.agents).toHaveLength(1);
       expect(res.body.agents[0].name).toBe('Sales Agent');
-      expect(res.body.agents[0].topicCount).toBe(1);
+      expect(res.body.agents[0].brainEntryCount).toBe(1);
     });
 
     it('should filter active agents', async () => {
@@ -142,15 +144,15 @@ describe('Custom Agents API', () => {
   });
 
   describe('GET /api/custom-agents/:id', () => {
-    it('should return agent with topics', async () => {
+    it('should return agent with brain entries', async () => {
       const res = await request(app).get('/api/custom-agents/agent-1');
       expect(res.status).toBe(200);
-      expect(res.body.topics).toHaveLength(1);
-      expect(agentRepo.getWithTopics).toHaveBeenCalledWith('agent-1');
+      expect(res.body.brain).toHaveLength(1);
+      expect(agentRepo.getWithBrain).toHaveBeenCalledWith('agent-1');
     });
 
     it('should return 404 for non-existent agent', async () => {
-      agentRepo.getWithTopics.mockResolvedValue(null);
+      agentRepo.getWithBrain.mockResolvedValue(null);
       const res = await request(app).get('/api/custom-agents/nonexistent');
       expect(res.status).toBe(404);
     });
@@ -190,11 +192,12 @@ describe('Custom Agents API', () => {
   });
 
   describe('POST /api/custom-agents/:id/duplicate', () => {
-    it('should duplicate an agent with topics', async () => {
+    it('should duplicate an agent with brain entries', async () => {
       const newRow = { ...agentRow, id: 'agent-new' };
       agentRepo.createAgent.mockResolvedValue(newRow);
-      agentRepo.getWithTopics.mockResolvedValueOnce({ ...agentRow, topics: [topicRow] })
-        .mockResolvedValueOnce({ ...newRow, topics: [topicRow] });
+      agentRepo.getWithBrain
+        .mockResolvedValueOnce({ ...agentRow, name: 'Sales Agent', brain: [brainEntry] })
+        .mockResolvedValueOnce({ ...newRow, name: 'Sales Agent', brain: [brainEntry] });
 
       const res = await request(app)
         .post('/api/custom-agents/agent-1/duplicate')
@@ -202,11 +205,11 @@ describe('Custom Agents API', () => {
 
       expect(res.status).toBe(201);
       expect(agentRepo.createAgent).toHaveBeenCalled();
-      expect(agentRepo.assignTopic).toHaveBeenCalledWith('agent-new', 'topic-1');
+      expect(brainRepo.duplicateForAgent).toHaveBeenCalledWith('agent-1', 'agent-new');
     });
 
     it('should use default name if none provided', async () => {
-      agentRepo.getWithTopics.mockResolvedValue({ ...agentRow, topics: [] });
+      agentRepo.getWithBrain.mockResolvedValue({ ...agentRow, name: 'Sales Agent', brain: [] });
       agentRepo.createAgent.mockResolvedValue({ ...agentRow, id: 'agent-dup' });
 
       await request(app).post('/api/custom-agents/agent-1/duplicate').send({});
@@ -266,67 +269,6 @@ describe('Custom Agents API', () => {
       const res = await request(app).put('/api/custom-agents/agent-1/deactivate');
       expect(res.status).toBe(200);
       expect(agentRepo.updateAgent).toHaveBeenCalledWith('agent-1', { active: false });
-    });
-  });
-
-  describe('GET /api/custom-agents/:id/topics', () => {
-    it('should list topics linked to agent', async () => {
-      const res = await request(app).get('/api/custom-agents/agent-1/topics');
-      expect(res.status).toBe(200);
-      expect(res.body.topics).toHaveLength(1);
-      expect(topicRepo.getByAgent).toHaveBeenCalledWith('agent-1');
-    });
-
-    it('should return 404 for non-existent agent', async () => {
-      agentRepo.findById.mockResolvedValue(null);
-      const res = await request(app).get('/api/custom-agents/nonexistent/topics');
-      expect(res.status).toBe(404);
-    });
-  });
-
-  describe('POST /api/custom-agents/:id/topics', () => {
-    it('should link a topic to an agent', async () => {
-      const res = await request(app)
-        .post('/api/custom-agents/agent-1/topics')
-        .send({ topicId: 'topic-1' });
-
-      expect(res.status).toBe(201);
-      expect(agentRepo.assignTopic).toHaveBeenCalledWith('agent-1', 'topic-1');
-    });
-
-    it('should require topicId', async () => {
-      const res = await request(app)
-        .post('/api/custom-agents/agent-1/topics')
-        .send({});
-
-      expect(res.status).toBe(400);
-    });
-
-    it('should return 404 if topic does not exist', async () => {
-      topicRepo.findById.mockResolvedValue(null);
-      const res = await request(app)
-        .post('/api/custom-agents/agent-1/topics')
-        .send({ topicId: 'nonexistent' });
-
-      expect(res.status).toBe(404);
-    });
-  });
-
-  describe('DELETE /api/custom-agents/:id/topics/:topicId', () => {
-    it('should unlink a topic from an agent', async () => {
-      const res = await request(app)
-        .delete('/api/custom-agents/agent-1/topics/topic-1');
-
-      expect(res.status).toBe(200);
-      expect(agentRepo.removeTopic).toHaveBeenCalledWith('agent-1', 'topic-1');
-    });
-
-    it('should return 404 for non-existent agent', async () => {
-      agentRepo.findById.mockResolvedValue(null);
-      const res = await request(app)
-        .delete('/api/custom-agents/nonexistent/topics/topic-1');
-
-      expect(res.status).toBe(404);
     });
   });
 });

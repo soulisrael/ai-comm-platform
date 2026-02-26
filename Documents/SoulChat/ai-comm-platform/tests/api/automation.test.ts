@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
-import path from 'path';
 import { createApp } from '../../src/api/server';
 import { ClaudeAPI } from '../../src/services/claude-api';
 import { vi } from 'vitest';
@@ -18,8 +17,7 @@ function createMockClaude(): ClaudeAPI {
 let app: Awaited<ReturnType<typeof createApp>>['app'];
 
 beforeEach(async () => {
-  const brainPath = path.resolve(__dirname, '../../brain');
-  const result = await createApp({ claude: createMockClaude(), brainPath, skipAuth: true });
+  const result = await createApp({ claude: createMockClaude(), skipAuth: true });
   app = result.app;
 });
 

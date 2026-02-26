@@ -1,11 +1,9 @@
 import { ClaudeAPI } from '../services/claude-api';
 import { CustomAgentRepository } from '../database/repositories/custom-agent-repository';
-import { TopicRepository } from '../database/repositories/topic-repository';
-import { CustomAgentWithTopics } from '../types/custom-agent';
+import { CustomAgentWithBrain } from '../types/custom-agent';
 import { Message } from '../types/message';
 import { Contact } from '../types/contact';
 import { PromptBuilder } from './prompt-builder';
-import { BrainSearch } from '../brain/brain-search';
 import logger from '../services/logger';
 
 export interface AgentRunnerResult {
@@ -25,18 +23,15 @@ const NEGATIVE_KEYWORDS = ['כועס', 'עצבני', 'נמאס', 'גרוע', 'מ
 export class AgentRunner {
   private claude: ClaudeAPI;
   private customAgentRepo: CustomAgentRepository;
-  private topicRepo: TopicRepository;
   private promptBuilder: PromptBuilder;
 
   constructor(
     claude: ClaudeAPI,
     customAgentRepo: CustomAgentRepository,
-    topicRepo: TopicRepository,
     promptBuilder: PromptBuilder
   ) {
     this.claude = claude;
     this.customAgentRepo = customAgentRepo;
-    this.topicRepo = topicRepo;
     this.promptBuilder = promptBuilder;
   }
 
@@ -46,8 +41,8 @@ export class AgentRunner {
     conversationHistory: Message[],
     contact?: Contact | null
   ): Promise<AgentRunnerResult> {
-    // Load agent with topics from DB
-    const agent = await this.customAgentRepo.getWithTopics(agentId);
+    // Load agent with brain from DB
+    const agent = await this.customAgentRepo.getWithBrain(agentId);
     if (!agent) {
       logger.error(`Agent not found: ${agentId}`);
       return {
@@ -62,7 +57,7 @@ export class AgentRunner {
   }
 
   async runWithAgent(
-    agent: CustomAgentWithTopics,
+    agent: CustomAgentWithBrain,
     message: string,
     conversationHistory: Message[],
     contact?: Contact | null
@@ -131,7 +126,7 @@ export class AgentRunner {
   detectHandoff(
     message: string,
     history: Message[],
-    agent: CustomAgentWithTopics
+    agent: CustomAgentWithBrain
   ): { shouldHandoff: boolean; reason?: string } {
     // Check for explicit human request keywords
     const lowerMessage = message.toLowerCase();
@@ -168,7 +163,7 @@ export class AgentRunner {
   detectTransfer(
     response: string,
     message: string,
-    agent: CustomAgentWithTopics
+    agent: CustomAgentWithBrain
   ): { shouldTransfer: boolean; suggestedAgentId?: string; transferMessage?: string } {
     // Check if the AI response indicates it can't answer (topic not in knowledge base)
     const cantAnswerPhrases = [

@@ -1,25 +1,16 @@
-import { AgentType, Conversation } from '../types/conversation';
 import { Message } from '../types/message';
 import { Contact } from '../types/contact';
-import { CustomAgentWithTopics } from '../types/custom-agent';
-import { Topic, TopicContent } from '../types/topic';
-import { BrainSearch } from '../brain/brain-search';
+import { CustomAgentWithBrain, BrainEntry } from '../types/custom-agent';
 import logger from '../services/logger';
 
 const MAX_HISTORY_MESSAGES = 20;
 
 export class PromptBuilder {
-  private brainSearch: BrainSearch;
-
-  constructor(brainSearch: BrainSearch) {
-    this.brainSearch = brainSearch;
-  }
-
   /**
    * Build a router prompt that lists all active custom agents for classification.
    */
   buildCustomRouterPrompt(
-    agents: CustomAgentWithTopics[],
+    agents: CustomAgentWithBrain[],
     message: string,
     history?: Message[]
   ): {
@@ -39,8 +30,8 @@ export class PromptBuilder {
       if (agent.routingKeywords.length > 0) {
         systemPrompt += `\nמילות מפתח: ${agent.routingKeywords.join(', ')}`;
       }
-      if (agent.topics.length > 0) {
-        systemPrompt += `\nנושאים: ${agent.topics.map(t => t.name).join(', ')}`;
+      if (agent.brain.length > 0) {
+        systemPrompt += `\nנושאי ידע: ${agent.brain.map(b => b.title).join(', ')}`;
       }
       if (agent.isDefault) {
         systemPrompt += `\n(סוכן ברירת מחדל)`;
@@ -51,7 +42,7 @@ export class PromptBuilder {
     systemPrompt += `
 הוראות:
 1. נתח את הודעת הלקוח וזהה לאיזה סוכן היא מתאימה.
-2. התחשב במילות המפתח ובנושאים של כל סוכן.
+2. התחשב במילות המפתח ובנושאי הידע של כל סוכן.
 3. אם אתה לא בטוח, בחר בסוכן ברירת המחדל.
 
 ענה אך ורק ב-JSON בפורמט הבא:
@@ -74,10 +65,10 @@ export class PromptBuilder {
   }
 
   /**
-   * Build a prompt for a specific custom agent with its topics as knowledge base.
+   * Build a prompt for a specific custom agent with its brain as knowledge base.
    */
   buildCustomAgentPrompt(
-    agent: CustomAgentWithTopics,
+    agent: CustomAgentWithBrain,
     history: Message[],
     contact?: Contact | null
   ): {
@@ -87,34 +78,29 @@ export class PromptBuilder {
     // Start with the agent's system prompt
     let systemPrompt = agent.systemPrompt || `אתה סוכן שירות לקוחות בשם "${agent.name}".`;
 
-    // Add company tone of voice from brain
-    const brainData = this.brainSearch.findRelevantBrainData('', 'support');
-    const companyInfo = brainData.companyInfo as { companyName?: string } | undefined;
-    const toneOfVoice = brainData.toneOfVoice as {
-      personality?: string;
-      doList?: string[];
-      dontList?: string[];
-    } | undefined;
-
-    if (toneOfVoice) {
-      systemPrompt += '\n\n## סגנון דיבור';
-      if (toneOfVoice.personality) systemPrompt += `\nאישיות: ${toneOfVoice.personality}`;
-      if (toneOfVoice.doList) systemPrompt += `\nכן: ${toneOfVoice.doList.join(', ')}`;
-      if (toneOfVoice.dontList) systemPrompt += `\nלא: ${toneOfVoice.dontList.join(', ')}`;
+    // Enforce language
+    const lang = agent.settings?.language || 'Hebrew';
+    if (lang === 'Hebrew' || lang === 'he') {
+      systemPrompt += '\n\nחשוב: ענה תמיד בשפה העברית בלבד.';
+    } else if (lang === 'Arabic' || lang === 'ar') {
+      systemPrompt += '\n\nمهم: أجب دائمًا باللغة العربية فقط.';
+    } else if (lang === 'English' || lang === 'en') {
+      systemPrompt += '\n\nImportant: Always respond in English only.';
     }
 
-    // Add business hours from brain
-    const companyData = brainData.companyInfo as { businessHours?: string } | undefined;
-    if (companyData?.businessHours) {
-      systemPrompt += `\n\nשעות פעילות: ${companyData.businessHours}`;
+    // Add main document content if available
+    if (agent.mainDocumentText) {
+      systemPrompt += '\n\n=== מסמך מרכזי ===\n';
+      systemPrompt += agent.mainDocumentText;
+      systemPrompt += '\n=== סוף מסמך מרכזי ===';
     }
 
-    // Build knowledge base from topics
-    if (agent.topics.length > 0) {
+    // Build knowledge base from brain entries
+    if (agent.brain.length > 0) {
       systemPrompt += '\n\n=== בסיס הידע שלך ===\n';
 
-      for (const topic of agent.topics) {
-        systemPrompt += this.formatTopicSection(topic);
+      for (const entry of agent.brain) {
+        systemPrompt += this.formatBrainEntry(entry);
       }
 
       systemPrompt += '\n=== סוף בסיס הידע ===';
@@ -154,180 +140,30 @@ export class PromptBuilder {
       agentName: agent.name,
       systemPromptLength: systemPrompt.length,
       messageCount: messages.length,
-      topicCount: agent.topics.length,
+      brainEntryCount: agent.brain.length,
+      hasMainDocument: !!agent.mainDocumentText,
     });
 
     return { systemPrompt, messages };
   }
 
   /**
-   * Format a single topic into a readable Hebrew section for the prompt.
+   * Format a single brain entry into a readable Hebrew section for the prompt.
    */
-  private formatTopicSection(topic: Topic): string {
-    const content = topic.content;
-    let section = `\nנושא: ${topic.name}\n`;
+  private formatBrainEntry(entry: BrainEntry): string {
+    let section = `\n### ${entry.title}`;
+    if (entry.category !== 'general') {
+      section += ` [${entry.category}]`;
+    }
+    section += `\n${entry.content}\n`;
 
-    if (content.description) {
-      section += `תיאור: ${content.description}\n`;
-    }
-    if (content.schedule) {
-      section += `לוח זמנים: ${content.schedule}\n`;
-    }
-    if (content.price) {
-      section += `מחיר: ${content.price}\n`;
-    }
-    if (content.faq && content.faq.length > 0) {
-      section += `שאלות נפוצות:\n`;
-      for (const faq of content.faq) {
-        section += `ש: ${faq.question} ת: ${faq.answer}\n`;
-      }
-    }
-    if (content.details) {
-      section += `פרטים נוספים:\n${content.details}\n`;
-    }
-    // Custom fields
-    if (content.customFields && Object.keys(content.customFields).length > 0) {
-      for (const [key, value] of Object.entries(content.customFields)) {
+    // Add metadata fields if present
+    if (entry.metadata && Object.keys(entry.metadata).length > 0) {
+      for (const [key, value] of Object.entries(entry.metadata)) {
         section += `${key}: ${value}\n`;
       }
     }
 
     return section;
-  }
-
-  // ─── Legacy methods (kept for backward compatibility) ────────────────────
-
-  buildRouterPrompt(message: Message, conversationHistory: Message[]): {
-    systemPrompt: string;
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  } {
-    const brainData = this.brainSearch.findRelevantBrainData(message.content, 'router');
-    const agentInstructions = brainData.agentInstructions as { systemPrompt: string } | undefined;
-
-    const systemPrompt = agentInstructions?.systemPrompt ||
-      'You are a message router. Classify the intent and respond with JSON: {"intent": "sales|support|trial_meeting|general", "confidence": 0.0-1.0, "language": "detected language", "sentiment": "positive|neutral|negative", "summary": "brief summary"}';
-
-    const recentHistory = conversationHistory.slice(-5);
-    const historyContext = recentHistory.length > 0
-      ? `\n\nRecent conversation context:\n${recentHistory.map(m => `${m.direction === 'inbound' ? 'Customer' : 'Agent'}: ${m.content}`).join('\n')}`
-      : '';
-
-    return {
-      systemPrompt: systemPrompt + historyContext,
-      messages: [{ role: 'user', content: message.content }],
-    };
-  }
-
-  buildAgentPrompt(
-    agentType: AgentType,
-    conversation: Conversation,
-    currentMessage: Message,
-    contact?: Contact | null
-  ): {
-    systemPrompt: string;
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  } {
-    const brainData = this.brainSearch.findRelevantBrainData(currentMessage.content, agentType);
-
-    const agentInstructions = brainData.agentInstructions as {
-      systemPrompt: string;
-      temperature?: number;
-      maxTokens?: number;
-    } | undefined;
-
-    let systemPrompt = agentInstructions?.systemPrompt || `You are a ${agentType} agent.`;
-
-    const companyInfo = brainData.companyInfo as { companyName?: string } | undefined;
-    systemPrompt = this.injectVariables(systemPrompt, {
-      companyName: companyInfo?.companyName || 'our company',
-      channel: conversation.channel,
-      contactName: contact?.name || 'there',
-    });
-
-    const toneOfVoice = brainData.toneOfVoice as {
-      personality?: string;
-      doList?: string[];
-      dontList?: string[];
-    } | undefined;
-    if (toneOfVoice) {
-      systemPrompt += '\n\n## Tone of Voice';
-      if (toneOfVoice.personality) systemPrompt += `\nPersonality: ${toneOfVoice.personality}`;
-      if (toneOfVoice.doList) systemPrompt += `\nDo: ${toneOfVoice.doList.join(', ')}`;
-      if (toneOfVoice.dontList) systemPrompt += `\nDon't: ${toneOfVoice.dontList.join(', ')}`;
-    }
-
-    const { companyInfo: _ci, toneOfVoice: _tov, agentInstructions: _ai, relevantFAQ, ...remainingBrain } = brainData;
-
-    if (Object.keys(remainingBrain).length > 0) {
-      systemPrompt += '\n\n## Knowledge Base';
-      for (const [key, value] of Object.entries(remainingBrain)) {
-        const section = JSON.stringify(value, null, 2);
-        if (systemPrompt.length + section.length < 80000) {
-          systemPrompt += `\n\n### ${this.formatSectionName(key)}\n${section}`;
-        }
-      }
-    }
-
-    if (relevantFAQ && Array.isArray(relevantFAQ) && relevantFAQ.length > 0) {
-      systemPrompt += '\n\n### Relevant FAQ Matches';
-      for (const faq of relevantFAQ) {
-        const f = faq as { question?: string; answer?: string };
-        systemPrompt += `\nQ: ${f.question}\nA: ${f.answer}\n`;
-      }
-    }
-
-    if (contact) {
-      systemPrompt += `\n\n## Customer Info`;
-      systemPrompt += `\nName: ${contact.name || 'Unknown'}`;
-      if (contact.email) systemPrompt += `\nEmail: ${contact.email}`;
-      if (contact.tags.length > 0) systemPrompt += `\nTags: ${contact.tags.join(', ')}`;
-      systemPrompt += `\nConversation count: ${contact.conversationCount}`;
-    }
-
-    if (conversation.context.intent) {
-      systemPrompt += `\n\n## Conversation Context`;
-      systemPrompt += `\nDetected intent: ${conversation.context.intent}`;
-      if (conversation.context.sentiment) systemPrompt += `\nSentiment: ${conversation.context.sentiment}`;
-      if (conversation.context.language) systemPrompt += `\nLanguage: ${conversation.context.language}`;
-      if (conversation.context.leadScore !== null) systemPrompt += `\nLead score: ${conversation.context.leadScore}`;
-    }
-
-    const recentMessages = conversation.messages.slice(-MAX_HISTORY_MESSAGES);
-    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-
-    for (const msg of recentMessages) {
-      messages.push({
-        role: msg.direction === 'inbound' ? 'user' : 'assistant',
-        content: msg.content,
-      });
-    }
-
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.content !== currentMessage.content) {
-      messages.push({ role: 'user', content: currentMessage.content });
-    }
-
-    logger.debug('Built agent prompt', {
-      agentType,
-      systemPromptLength: systemPrompt.length,
-      messageCount: messages.length,
-    });
-
-    return { systemPrompt, messages };
-  }
-
-  private injectVariables(template: string, vars: Record<string, string>): string {
-    let result = template;
-    for (const [key, value] of Object.entries(vars)) {
-      result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
-    }
-    return result;
-  }
-
-  private formatSectionName(key: string): string {
-    return key
-      .replace(/([A-Z])/g, ' $1')
-      .replace(/^./, s => s.toUpperCase())
-      .trim();
   }
 }

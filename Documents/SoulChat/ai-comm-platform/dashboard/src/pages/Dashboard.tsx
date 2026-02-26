@@ -23,22 +23,22 @@ export function Dashboard() {
   const todayMessages = overview?.messages?.today || 0;
 
   const channelData = [
-    { name: 'Web', value: 45 },
-    { name: 'WhatsApp', value: 30 },
-    { name: 'Instagram', value: 15 },
-    { name: 'Telegram', value: 10 },
+    { name: 'ווב', value: 45 },
+    { name: 'וואטסאפ', value: 30 },
+    { name: 'אינסטגרם', value: 15 },
+    { name: 'טלגרם', value: 10 },
   ];
 
   const cards = [
-    { label: 'Active Conversations', value: stats.active, icon: MessageSquare, color: 'text-green-600 bg-green-50' },
-    { label: "Today's Messages", value: todayMessages, icon: Clock, color: 'text-blue-600 bg-blue-50' },
-    { label: 'Total Contacts', value: totalContacts, icon: Users, color: 'text-purple-600 bg-purple-50' },
-    { label: 'Pending Handoffs', value: stats.handoff, icon: ArrowRightLeft, color: 'text-red-600 bg-red-50' },
+    { label: 'שיחות פעילות', value: stats.active, icon: MessageSquare, color: 'text-green-600 bg-green-50' },
+    { label: 'הודעות היום', value: todayMessages, icon: Clock, color: 'text-blue-600 bg-blue-50' },
+    { label: 'סה״כ אנשי קשר', value: totalContacts, icon: Users, color: 'text-purple-600 bg-purple-50' },
+    { label: 'העברות ממתינות', value: stats.handoff, icon: ArrowRightLeft, color: 'text-red-600 bg-red-50' },
   ];
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
+      <h1 className="text-xl font-semibold text-gray-900">לוח בקרה</h1>
 
       {/* Stats cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -60,7 +60,7 @@ export function Dashboard() {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="text-sm font-medium text-gray-700 mb-4">Message Volume (Last 7 Days)</h2>
+          <h2 className="text-sm font-medium text-gray-700 mb-4">נפח הודעות (7 ימים אחרונים)</h2>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={volumeData?.data || []}>
               <XAxis dataKey="period" tick={{ fontSize: 12 }} />
@@ -72,7 +72,7 @@ export function Dashboard() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="text-sm font-medium text-gray-700 mb-4">By Channel</h2>
+          <h2 className="text-sm font-medium text-gray-700 mb-4">לפי ערוץ</h2>
           <ResponsiveContainer width="100%" height={250}>
             <PieChart>
               <Pie data={channelData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" label={({ name }) => name}>
@@ -89,14 +89,14 @@ export function Dashboard() {
       {/* Recent conversations */}
       <div className="bg-white rounded-xl border border-gray-200">
         <div className="px-5 py-4 border-b border-gray-100">
-          <h2 className="text-sm font-medium text-gray-700">Recent Conversations</h2>
+          <h2 className="text-sm font-medium text-gray-700">שיחות אחרונות</h2>
         </div>
         <div className="divide-y divide-gray-100">
           {(convData?.conversations || []).map(conv => (
             <button
               key={conv.id}
               onClick={() => navigate(`/conversations?id=${conv.id}`)}
-              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-gray-50 text-left"
+              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-gray-50 text-right"
             >
               <ChannelIcon channel={conv.channel} />
               <div className="flex-1 min-w-0">
@@ -104,7 +104,7 @@ export function Dashboard() {
                   {conv.contactId}
                 </p>
                 <p className="text-xs text-gray-500 truncate">
-                  {conv.messages.length > 0 ? truncate(conv.messages[conv.messages.length - 1].content, 60) : 'No messages'}
+                  {conv.messages?.length ? truncate(conv.messages[conv.messages.length - 1].content, 60) : 'אין הודעות'}
                 </p>
               </div>
               <StatusBadge status={conv.status} />

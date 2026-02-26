@@ -10,9 +10,6 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 import { ClaudeAPI } from '../services/claude-api';
-import { BrainLoader } from '../brain/brain-loader';
-import { BrainManager } from '../brain/brain-manager';
-import { BrainSearch } from '../brain/brain-search';
 import { AgentOrchestrator } from '../agents/agent-orchestrator';
 import { ConversationEngine } from '../conversation/conversation-engine';
 import { ConversationManager } from '../conversation/conversation-manager';
@@ -23,18 +20,15 @@ import { authMiddleware } from './middleware/auth';
 import { createMessagesRouter } from './routes/messages';
 import { createConversationsRouter } from './routes/conversations';
 import { createContactsRouter } from './routes/contacts';
-import { createBrainRouter } from './routes/brain';
 import { createAnalyticsRouter } from './routes/analytics';
 import { createWebhooksRouter } from './routes/webhooks';
 import { createAutomationRouter } from './routes/automation';
-import { createUploadRouter } from './routes/upload';
 import { createCustomAgentsRouter } from './routes/custom-agents';
-import { createTopicsRouter } from './routes/topics';
+import { createBrainRouter } from './routes/brain';
 import { createCompanyRouter } from './routes/company';
 import { CustomAgentRepository } from '../database/repositories/custom-agent-repository';
-import { TopicRepository } from '../database/repositories/topic-repository';
+import { BrainRepository } from '../database/repositories/brain-repository';
 import { getSupabaseClient } from '../database/supabase-client';
-import { DocxConverter } from '../services/docx-converter';
 import { FlowEngine } from '../automation/flow-engine';
 import { TriggerManager } from '../automation/triggers/trigger-manager';
 import { BroadcastManager } from '../automation/broadcast';
@@ -52,7 +46,6 @@ dotenv.config();
 
 export async function createApp(options?: {
   claude?: ClaudeAPI;
-  brainPath?: string;
   skipAuth?: boolean;
 }) {
   const app = express();
@@ -85,13 +78,6 @@ export async function createApp(options?: {
     app.use(authMiddleware);
   }
 
-  // Initialize brain
-  const brainPath = options?.brainPath || path.resolve(process.cwd(), 'brain');
-  const brainLoader = new BrainLoader(brainPath);
-  brainLoader.loadAll();
-  const brainManager = new BrainManager(brainLoader, brainPath);
-  const brainSearch = new BrainSearch(brainLoader);
-
   // Initialize Claude API
   let claude: ClaudeAPI;
   if (options?.claude) {
@@ -108,17 +94,25 @@ export async function createApp(options?: {
   // Initialize stores (SupabaseStore or MemoryStore based on env)
   const { contactStore, conversationStore, messageSync } = await createStores();
 
-  // Initialize custom agent repos if Supabase is available
+  // Initialize custom agent repos (required — Supabase)
   const supabase = getSupabaseClient();
   let customAgentRepo: CustomAgentRepository | undefined;
-  let topicRepo: TopicRepository | undefined;
+  let brainRepo: BrainRepository | undefined;
   if (supabase) {
     customAgentRepo = new CustomAgentRepository(supabase);
-    topicRepo = new TopicRepository(supabase);
+    brainRepo = new BrainRepository(supabase);
   }
 
-  // Initialize engine with injected stores
-  const orchestrator = new AgentOrchestrator(claude, brainLoader, customAgentRepo, topicRepo);
+  // Initialize engine
+  let orchestrator: AgentOrchestrator;
+  if (customAgentRepo) {
+    orchestrator = new AgentOrchestrator(claude, customAgentRepo);
+  } else {
+    // Fallback: create with dummy repos — agents won't work without Supabase
+    logger.warn('Supabase not configured. Custom agents will not work.');
+    orchestrator = null as unknown as AgentOrchestrator;
+  }
+
   const conversationManager = new ConversationManager(conversationStore);
   const contactManager = new ContactManager(contactStore);
   const engine = new ConversationEngine(orchestrator, conversationManager, contactManager);
@@ -156,7 +150,6 @@ export async function createApp(options?: {
   }
 
   // Register health checks
-  registerHealthCheck('brain', () => brainLoader.getData().size > 0);
   registerHealthCheck('claude_api', () => claude !== null);
 
   // Track message metrics
@@ -210,37 +203,28 @@ export async function createApp(options?: {
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
 
-  // Initialize document converter
-  const docxConverter = claude ? new DocxConverter(claude, brainLoader) : null;
-
   // API Routes
   app.use('/api/messages', createMessagesRouter(engine));
   app.use('/api/conversations', createConversationsRouter(engine));
   app.use('/api/contacts', createContactsRouter(engine));
-  if (docxConverter) {
-    app.use('/api/brain/upload', createUploadRouter(docxConverter, brainManager, brainLoader));
-  }
-  app.use('/api/brain', createBrainRouter(brainLoader, brainManager, brainSearch));
   app.use('/api/analytics', createAnalyticsRouter(engine));
   app.use('/api/webhooks', createWebhooksRouter(channelManager, engine));
   app.use('/api/automation', createAutomationRouter({ flowEngine, broadcastManager, templateManager, triggerManager }));
 
-  // Custom agent & topic routes (only if Supabase available)
-  if (customAgentRepo && topicRepo) {
+  // Custom agent & brain routes (only if Supabase available)
+  if (customAgentRepo && brainRepo) {
     const agentRunner = orchestrator.getAgentRunner();
-    if (agentRunner) {
-      app.use('/api/custom-agents', createCustomAgentsRouter(customAgentRepo, topicRepo, agentRunner, claude));
-    }
-    app.use('/api/topics', createTopicsRouter(topicRepo, customAgentRepo));
+    app.use('/api/custom-agents', createCustomAgentsRouter(customAgentRepo, brainRepo, agentRunner, claude));
+    app.use('/api/brain', createBrainRouter(brainRepo));
   }
 
-  // Company settings route
-  app.use('/api/company', createCompanyRouter(brainLoader, brainManager));
+  // Company settings route (stub — returns empty)
+  app.use('/api/company', createCompanyRouter());
 
   // Error handler (must be last)
   app.use(errorHandler);
 
-  return { app, engine, brainLoader, brainManager, channelManager, flowEngine, broadcastManager, templateManager, triggerManager, customAgentRepo, topicRepo };
+  return { app, engine, channelManager, flowEngine, broadcastManager, templateManager, triggerManager, customAgentRepo, brainRepo };
 }
 
 // Start server if run directly

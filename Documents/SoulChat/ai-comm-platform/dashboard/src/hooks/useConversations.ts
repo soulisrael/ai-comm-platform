@@ -62,8 +62,14 @@ export function useConversationActions() {
   });
 
   const switchAgent = useMutation({
-    mutationFn: ({ id, agentType }: { id: string; agentType: string }) =>
-      api.post(`/api/conversations/${id}/switch-agent`, { agentType }),
+    mutationFn: ({ id, agentType, customAgentId }: { id: string; agentType?: string; customAgentId?: string }) =>
+      api.post(`/api/conversations/${id}/switch-agent`, { agentType, customAgentId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+  });
+
+  const transferToAgent = useMutation({
+    mutationFn: ({ id, targetAgentId, message }: { id: string; targetAgentId: string; message?: string }) =>
+      api.post(`/api/conversations/${id}/transfer`, { targetAgentId, message }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
   });
 
@@ -73,5 +79,10 @@ export function useConversationActions() {
     onSuccess: (_, { id }) => qc.invalidateQueries({ queryKey: ['conversation', id] }),
   });
 
-  return { handoff, takeover, pause, resume, close, switchAgent, reply };
+  const reopen = useMutation({
+    mutationFn: (id: string) => api.post(`/api/conversations/${id}/reopen`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+  });
+
+  return { handoff, takeover, pause, resume, close, switchAgent, transferToAgent, reply, reopen };
 }

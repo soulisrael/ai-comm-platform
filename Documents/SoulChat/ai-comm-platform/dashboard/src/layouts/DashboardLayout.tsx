@@ -1,23 +1,24 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
-  LayoutDashboard, MessageSquare, Users, Brain, ArrowRightLeft,
-  BarChart3, Settings, LogOut, Menu, X, ChevronLeft, Zap, Radio, FileText,
+  LayoutDashboard, MessageSquare, Users, ArrowRightLeft,
+  BarChart3, Settings, LogOut, Menu, X, ChevronRight, Zap, Radio, FileText,
+  Bot,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/conversations', icon: MessageSquare, label: 'Conversations' },
-  { to: '/contacts', icon: Users, label: 'Contacts' },
-  { to: '/brain', icon: Brain, label: 'Brain' },
-  { to: '/handoffs', icon: ArrowRightLeft, label: 'Handoff Queue' },
-  { to: '/analytics', icon: BarChart3, label: 'Analytics' },
-  { to: '/flows', icon: Zap, label: 'Flows' },
-  { to: '/broadcasts', icon: Radio, label: 'Broadcasts' },
-  { to: '/templates', icon: FileText, label: 'Templates' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/', icon: LayoutDashboard, label: 'לוח בקרה' },
+  { to: '/conversations', icon: MessageSquare, label: 'שיחות' },
+  { to: '/agents', icon: Bot, label: 'סוכנים' },
+  { to: '/contacts', icon: Users, label: 'אנשי קשר' },
+  { to: '/handoffs', icon: ArrowRightLeft, label: 'העברות' },
+  { to: '/analytics', icon: BarChart3, label: 'אנליטיקס' },
+  { to: '/flows', icon: Zap, label: 'תהליכים' },
+  { to: '/broadcasts', icon: Radio, label: 'שידורים' },
+  { to: '/templates', icon: FileText, label: 'תבניות' },
+  { to: '/settings', icon: Settings, label: 'הגדרות' },
 ];
 
 export function DashboardLayout() {
@@ -35,7 +36,7 @@ export function DashboardLayout() {
           onClick={() => { setSidebarOpen(!sidebarOpen); setMobileOpen(false); }}
           className="p-1 text-gray-500 hover:text-gray-700 hidden lg:block"
         >
-          <ChevronLeft size={18} className={cn('transition-transform', !sidebarOpen && 'rotate-180')} />
+          <ChevronRight size={18} className={cn('transition-transform', sidebarOpen && 'rotate-180')} />
         </button>
         <button onClick={() => setMobileOpen(false)} className="p-1 text-gray-500 lg:hidden">
           <X size={18} />
@@ -78,7 +79,7 @@ export function DashboardLayout() {
           className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
         >
           <LogOut size={16} />
-          <span className={cn(!sidebarOpen && 'lg:hidden')}>Sign out</span>
+          <span className={cn(!sidebarOpen && 'lg:hidden')}>התנתק</span>
         </button>
       </div>
     </nav>
@@ -93,15 +94,15 @@ export function DashboardLayout() {
 
       {/* Mobile sidebar */}
       <aside className={cn(
-        'fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform transition-transform lg:hidden',
-        mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        'fixed inset-y-0 right-0 z-50 w-64 bg-white border-s border-gray-200 transform transition-transform lg:hidden',
+        mobileOpen ? 'translate-x-0' : 'translate-x-full'
       )}>
         {sidebar}
       </aside>
 
       {/* Desktop sidebar */}
       <aside className={cn(
-        'hidden lg:flex flex-col bg-white border-r border-gray-200 transition-all duration-200',
+        'hidden lg:flex flex-col bg-white border-s border-gray-200 transition-all duration-200',
         sidebarOpen ? 'w-60' : 'w-16'
       )}>
         {sidebar}

@@ -170,50 +170,52 @@ describe('CustomAgentRepository', () => {
     });
   });
 
-  describe('getWithTopics', () => {
-    it('should return agent with joined topics', async () => {
+  describe('getWithBrain', () => {
+    it('should return agent with brain entries', async () => {
       const agent = createMockAgent();
-      const topicRow = {
-        id: 'topic-1',
-        name: 'Test Topic',
-        description: 'Test',
-        content: { description: 'Test topic', faq: [], customFields: {} },
-        is_shared: false,
+      const brainRow = {
+        id: 'brain-1',
+        agent_id: 'agent-1',
+        title: 'Test Entry',
+        content: 'Test content',
+        category: 'general',
+        metadata: {},
+        sort_order: 0,
+        active: true,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
       };
 
-      // findById call
+      // findById call (custom_agents)
       const mockFindById = vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
           single: vi.fn().mockResolvedValue({ data: agent, error: null }),
         }),
       });
-      // agent_topics call
-      const mockJunction = vi.fn().mockReturnValue({
-        eq: vi.fn().mockResolvedValue({ data: [{ topic_id: 'topic-1' }], error: null }),
+      // agent_brain call
+      const mockBrainEqActive = vi.fn().mockReturnValue({
+        order: vi.fn().mockResolvedValue({ data: [brainRow], error: null }),
       });
-      // topics call
-      const mockTopics = vi.fn().mockReturnValue({
-        in: vi.fn().mockResolvedValue({ data: [topicRow], error: null }),
+      const mockBrainEqAgent = vi.fn().mockReturnValue({
+        eq: mockBrainEqActive,
+      });
+      const mockBrainSelect = vi.fn().mockReturnValue({
+        eq: mockBrainEqAgent,
       });
 
-      let callCount = 0;
       mockClient.from.mockImplementation((table: string) => {
         if (table === 'custom_agents') {
           return { select: mockFindById };
-        } else if (table === 'agent_topics') {
-          return { select: mockJunction };
-        } else if (table === 'topics') {
-          return { select: mockTopics };
+        } else if (table === 'agent_brain') {
+          return { select: mockBrainSelect };
         }
         return {};
       });
 
-      const result = await repo.getWithTopics('agent-1');
+      const result = await repo.getWithBrain('agent-1');
       expect(result).not.toBeNull();
-      expect(result!.topics).toHaveLength(1);
-      expect(result!.topics[0].name).toBe('Test Topic');
+      expect(result!.brain).toHaveLength(1);
+      expect(result!.brain[0].title).toBe('Test Entry');
     });
 
     it('should return null when agent not found', async () => {
@@ -225,7 +227,7 @@ describe('CustomAgentRepository', () => {
         }),
       });
 
-      const result = await repo.getWithTopics('nonexistent');
+      const result = await repo.getWithBrain('nonexistent');
       expect(result).toBeNull();
     });
   });
@@ -241,7 +243,7 @@ describe('CustomAgentRepository', () => {
         }),
       });
 
-      const result = await repo.createAgent({ name: 'Test Agent' });
+      const result = await repo.createAgent({ name: 'Test Agent', systemPrompt: 'You are a test agent' });
       expect(result).toEqual(newAgent);
       expect(mockClient.from).toHaveBeenCalledWith('custom_agents');
     });
@@ -279,35 +281,6 @@ describe('CustomAgentRepository', () => {
 
       const result = await repo.deleteById('agent-1');
       expect(result).toBe(true);
-    });
-  });
-
-  describe('assignTopic', () => {
-    it('should insert into agent_topics', async () => {
-      const mockInsert = vi.fn().mockResolvedValue({ error: null });
-      mockClient.from.mockReturnValue({
-        insert: mockInsert,
-      });
-
-      await repo.assignTopic('agent-1', 'topic-1');
-      expect(mockClient.from).toHaveBeenCalledWith('agent_topics');
-      expect(mockInsert).toHaveBeenCalledWith({ agent_id: 'agent-1', topic_id: 'topic-1' });
-    });
-  });
-
-  describe('removeTopic', () => {
-    it('should delete from agent_topics', async () => {
-      const mockDeleteEq = vi.fn().mockResolvedValue({ error: null });
-      mockClient.from.mockReturnValue({
-        delete: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            eq: mockDeleteEq,
-          }),
-        }),
-      });
-
-      await repo.removeTopic('agent-1', 'topic-1');
-      expect(mockClient.from).toHaveBeenCalledWith('agent_topics');
     });
   });
 

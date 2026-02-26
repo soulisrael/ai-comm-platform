@@ -1,7 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { BaseRepository } from './base-repository';
-import { CustomAgentRow, TopicRow, AgentTopicRow, customAgentFromRow, topicFromRow } from '../db-types';
-import { CustomAgentWithTopics } from '../../types/custom-agent';
+import { CustomAgentRow, AgentBrainRow, customAgentFromRow, brainEntryFromRow } from '../db-types';
+import { CustomAgentWithBrain } from '../../types/custom-agent';
 import { CustomAgentCreateInput, CustomAgentUpdateInput } from '../../types/custom-agent';
 import logger from '../../services/logger';
 
@@ -39,91 +39,64 @@ export class CustomAgentRepository extends BaseRepository<CustomAgentRow> {
     return data as CustomAgentRow;
   }
 
-  async getWithTopics(id: string): Promise<CustomAgentWithTopics | null> {
+  async getWithBrain(id: string): Promise<CustomAgentWithBrain | null> {
     const agentRow = await this.findById(id);
     if (!agentRow) return null;
 
-    const { data: junctionData, error: junctionError } = await this.client
-      .from('agent_topics')
-      .select('topic_id')
-      .eq('agent_id', id);
+    const { data: brainData, error: brainError } = await this.client
+      .from('agent_brain')
+      .select('*')
+      .eq('agent_id', id)
+      .eq('active', true)
+      .order('sort_order', { ascending: true });
 
-    if (junctionError) {
-      logger.error('DB getWithTopics junction error:', junctionError);
-      throw junctionError;
-    }
-
-    const topicIds = (junctionData || []).map((row: { topic_id: string }) => row.topic_id);
-    let topics: TopicRow[] = [];
-
-    if (topicIds.length > 0) {
-      const { data: topicData, error: topicError } = await this.client
-        .from('topics')
-        .select('*')
-        .in('id', topicIds);
-
-      if (topicError) {
-        logger.error('DB getWithTopics topics error:', topicError);
-        throw topicError;
-      }
-      topics = (topicData || []) as TopicRow[];
+    if (brainError) {
+      logger.error('DB getWithBrain brain error:', brainError);
+      throw brainError;
     }
 
     const agent = customAgentFromRow(agentRow);
-    return {
-      ...agent,
-      topics: topics.map(topicFromRow),
-    };
+    const brain = ((brainData || []) as AgentBrainRow[]).map(brainEntryFromRow);
+
+    return { ...agent, brain };
   }
 
-  async getAllWithTopics(): Promise<CustomAgentWithTopics[]> {
+  async getAllWithBrain(): Promise<CustomAgentWithBrain[]> {
     const agents = await this.findAll();
 
-    const { data: junctionData, error: junctionError } = await this.client
-      .from('agent_topics')
-      .select('*');
+    const { data: brainData, error: brainError } = await this.client
+      .from('agent_brain')
+      .select('*')
+      .eq('active', true)
+      .order('sort_order', { ascending: true });
 
-    if (junctionError) {
-      logger.error('DB getAllWithTopics junction error:', junctionError);
-      throw junctionError;
+    if (brainError) {
+      logger.error('DB getAllWithBrain brain error:', brainError);
+      throw brainError;
     }
 
-    const agentIds = agents.map(a => a.id);
-    const topicIds = [...new Set((junctionData || []).map((row: AgentTopicRow) => row.topic_id))];
-
-    let topicsMap = new Map<string, TopicRow>();
-
-    if (topicIds.length > 0) {
-      const { data: topicData, error: topicError } = await this.client
-        .from('topics')
-        .select('*')
-        .in('id', topicIds);
-
-      if (topicError) {
-        logger.error('DB getAllWithTopics topics error:', topicError);
-        throw topicError;
-      }
-      for (const t of (topicData || []) as TopicRow[]) {
-        topicsMap.set(t.id, t);
-      }
-    }
-
-    const junctionByAgent = new Map<string, string[]>();
-    for (const row of (junctionData || []) as AgentTopicRow[]) {
-      const list = junctionByAgent.get(row.agent_id) || [];
-      list.push(row.topic_id);
-      junctionByAgent.set(row.agent_id, list);
+    const brainByAgent = new Map<string, AgentBrainRow[]>();
+    for (const row of (brainData || []) as AgentBrainRow[]) {
+      const list = brainByAgent.get(row.agent_id) || [];
+      list.push(row);
+      brainByAgent.set(row.agent_id, list);
     }
 
     return agents.map(agentRow => {
       const agent = customAgentFromRow(agentRow);
-      const agentTopicIds = junctionByAgent.get(agentRow.id) || [];
-      const topics = agentTopicIds
-        .map(tid => topicsMap.get(tid))
-        .filter((t): t is TopicRow => t !== undefined)
-        .map(topicFromRow);
-      return { ...agent, topics };
+      const brainRows = brainByAgent.get(agentRow.id) || [];
+      const brain = brainRows.map(brainEntryFromRow);
+      return { ...agent, brain };
     });
+  }
+
+  // Legacy alias — used by router and prompt builder
+  async getWithTopics(id: string): Promise<CustomAgentWithBrain | null> {
+    return this.getWithBrain(id);
+  }
+
+  async getAllWithTopics(): Promise<CustomAgentWithBrain[]> {
+    return this.getAllWithBrain();
   }
 
   async createAgent(input: unknown): Promise<CustomAgentRow> {
@@ -131,7 +104,9 @@ export class CustomAgentRepository extends BaseRepository<CustomAgentRow> {
     const row: Partial<CustomAgentRow> = {
       name: validated.name,
       description: validated.description ?? null,
-      system_prompt: validated.systemPrompt ?? null,
+      system_prompt: validated.systemPrompt,
+      main_document_text: null,
+      main_document_filename: null,
       routing_keywords: validated.routingKeywords,
       routing_description: validated.routingDescription ?? null,
       handoff_rules: validated.handoffRules,
@@ -172,28 +147,11 @@ export class CustomAgentRepository extends BaseRepository<CustomAgentRow> {
     return this.update(id, partial);
   }
 
-  async assignTopic(agentId: string, topicId: string): Promise<void> {
-    const { error } = await this.client
-      .from('agent_topics')
-      .insert({ agent_id: agentId, topic_id: topicId });
-
-    if (error) {
-      logger.error('DB assignTopic error:', error);
-      throw error;
-    }
-  }
-
-  async removeTopic(agentId: string, topicId: string): Promise<void> {
-    const { error } = await this.client
-      .from('agent_topics')
-      .delete()
-      .eq('agent_id', agentId)
-      .eq('topic_id', topicId);
-
-    if (error) {
-      logger.error('DB removeTopic error:', error);
-      throw error;
-    }
+  async updateDocument(id: string, text: string | null, filename: string | null): Promise<CustomAgentRow> {
+    return this.update(id, {
+      main_document_text: text,
+      main_document_filename: filename,
+    } as Partial<CustomAgentRow>);
   }
 
   async getByKeyword(keyword: string): Promise<CustomAgentRow[]> {
