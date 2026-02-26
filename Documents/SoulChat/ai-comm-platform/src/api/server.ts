@@ -24,7 +24,7 @@ import { createAnalyticsRouter } from './routes/analytics';
 import { createWebhooksRouter } from './routes/webhooks';
 import { createAutomationRouter } from './routes/automation';
 import { createCustomAgentsRouter } from './routes/custom-agents';
-import { createBrainRouter, createAgentBrainRouter } from './routes/brain';
+import { createAgentBrainRouter } from './routes/brain';
 import { createCompanyRouter } from './routes/company';
 import { createTeamRouter } from './routes/team';
 import { createFlowsRouter } from './routes/flows';
@@ -246,14 +246,13 @@ export async function createApp(options?: {
   app.use('/api/webhooks', createWebhooksRouter(channelManager, engine));
   app.use('/api/automation', createAutomationRouter({ flowEngine, broadcastManager, templateManager, triggerManager }));
 
-  // Custom agent & brain routes (only if Supabase available)
+  // Custom agent routes (only if Supabase available)
   if (customAgentRepo && brainRepo) {
     const agentRunner = orchestrator.getAgentRunner();
     const agentsRouter = createCustomAgentsRouter(customAgentRepo, brainRepo, agentRunner, claude);
     // Mount nested brain routes on custom-agents
     agentsRouter.use('/:agentId/brain', createAgentBrainRouter(brainRepo));
     app.use('/api/custom-agents', agentsRouter);
-    app.use('/api/brain', createBrainRouter(brainRepo));
   }
 
   // Team routes
@@ -285,7 +284,7 @@ export async function createApp(options?: {
   // Error handler (must be last)
   app.use(errorHandler);
 
-  return { app, engine, channelManager, flowEngine, broadcastManager, templateManager, triggerManager, customAgentRepo, brainRepo, teamRepo, flowRepoNew, waConfigRepo, newFlowEngine, serviceBatcher: messageBatcher, serviceWindow };
+  return { app, engine, channelManager, flowEngine, broadcastManager, templateManager, triggerManager, customAgentRepo, teamRepo, flowRepoNew, waConfigRepo, newFlowEngine, serviceBatcher: messageBatcher, serviceWindow };
 }
 
 // Start server if run directly

@@ -9,15 +9,7 @@ interface BrainEntriesResponse {
 export function useAgentBrain(agentId: string | null) {
   return useQuery({
     queryKey: ['agent-brain', agentId],
-    queryFn: async () => {
-      try {
-        // New nested route
-        return await api.get<BrainEntriesResponse>(`/api/custom-agents/${agentId}/brain`);
-      } catch {
-        // Fallback to old route
-        return api.get<BrainEntriesResponse>(`/api/brain/agent/${agentId}`);
-      }
-    },
+    queryFn: () => api.get<BrainEntriesResponse>(`/api/custom-agents/${agentId}/brain`),
     enabled: !!agentId,
   });
 }
@@ -31,67 +23,36 @@ export function useBrainActions(agentId: string) {
   };
 
   const create = useMutation({
-    mutationFn: async (data: {
+    mutationFn: (data: {
       title: string;
       content: string;
       category?: string;
       metadata?: Record<string, any>;
       sortOrder?: number;
-    }) => {
-      try {
-        // New nested route
-        return await api.post<BrainEntry>(`/api/custom-agents/${agentId}/brain`, data);
-      } catch {
-        // Fallback to old route
-        return api.post<BrainEntry>('/api/brain', { agentId, ...data });
-      }
-    },
+    }) => api.post<BrainEntry>(`/api/custom-agents/${agentId}/brain`, data),
     onSuccess: invalidate,
   });
 
   const update = useMutation({
-    mutationFn: async ({ id, ...data }: { id: string } & Partial<{
+    mutationFn: ({ id, ...data }: { id: string } & Partial<{
       title: string;
       content: string;
       category: string;
       metadata: Record<string, any>;
       sortOrder: number;
       active: boolean;
-    }>) => {
-      try {
-        // New nested route
-        return await api.put<BrainEntry>(`/api/custom-agents/${agentId}/brain/${id}`, data);
-      } catch {
-        // Fallback to old route
-        return api.put<BrainEntry>(`/api/brain/${id}`, data);
-      }
-    },
+    }>) => api.put<BrainEntry>(`/api/custom-agents/${agentId}/brain/${id}`, data),
     onSuccess: invalidate,
   });
 
   const remove = useMutation({
-    mutationFn: async (id: string) => {
-      try {
-        // New nested route
-        return await api.delete(`/api/custom-agents/${agentId}/brain/${id}`);
-      } catch {
-        // Fallback to old route
-        return api.delete(`/api/brain/${id}`);
-      }
-    },
+    mutationFn: (id: string) => api.delete(`/api/custom-agents/${agentId}/brain/${id}`),
     onSuccess: invalidate,
   });
 
   const reorder = useMutation({
-    mutationFn: async (orderedIds: string[]) => {
-      try {
-        // New nested route
-        return await api.put(`/api/custom-agents/${agentId}/brain/reorder`, { orderedIds });
-      } catch {
-        // Fallback to old route
-        return api.put(`/api/brain/reorder/${agentId}`, { orderedIds });
-      }
-    },
+    mutationFn: (orderedIds: string[]) =>
+      api.put(`/api/custom-agents/${agentId}/brain/reorder`, { orderedIds }),
     onSuccess: invalidate,
   });
 
