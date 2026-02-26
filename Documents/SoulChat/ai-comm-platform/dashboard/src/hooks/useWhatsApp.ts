@@ -20,6 +20,13 @@ export function useWaTemplates() {
   });
 }
 
+export function useMetaConfig() {
+  return useQuery({
+    queryKey: ['wa-meta-config'],
+    queryFn: () => api.get<{ appId: string; configId: string }>('/api/whatsapp/auth/meta-config'),
+  });
+}
+
 export function useWhatsAppActions() {
   const qc = useQueryClient();
 
@@ -44,5 +51,16 @@ export function useWhatsAppActions() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['wa-templates'] }),
   });
 
-  return { updateConfig, testConnection, sendTest, createTemplate };
+  const exchangeToken = useMutation({
+    mutationFn: (data: { code: string }) =>
+      api.post<{ success: boolean }>('/api/whatsapp/auth/exchange-token', data),
+  });
+
+  const completeSignup = useMutation({
+    mutationFn: (data: { wabaId: string; phoneNumberId: string }) =>
+      api.post<{ success: boolean; status: string }>('/api/whatsapp/auth/complete-signup', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['wa-config'] }),
+  });
+
+  return { updateConfig, testConnection, sendTest, createTemplate, exchangeToken, completeSignup };
 }

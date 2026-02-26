@@ -116,6 +116,95 @@ export function createWhatsAppRouter(waConfigRepo: WaConfigRepository): Router {
     res.json(result);
   });
 
+  // GET /auth/meta-config — return Meta app config for frontend SDK init
+  router.get('/auth/meta-config', async (_req: Request, res: Response) => {
+    res.json({
+      appId: process.env.META_APP_ID || '',
+      configId: process.env.META_CONFIG_ID || '',
+    });
+  });
+
+  // POST /auth/exchange-token — exchange FB login code for long-lived token
+  router.post('/auth/exchange-token', async (req: Request, res: Response) => {
+    const { code } = req.body;
+    if (!code) {
+      throw new AppError('code is required', 400, 'VALIDATION_ERROR');
+    }
+
+    const appId = process.env.META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+    if (!appId || !appSecret) {
+      throw new AppError('META_APP_ID and META_APP_SECRET must be configured', 500, 'CONFIG_ERROR');
+    }
+
+    const url = `https://graph.facebook.com/v21.0/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&code=${encodeURIComponent(code)}`;
+    const fbRes = await fetch(url);
+    const fbData = await fbRes.json() as any;
+
+    if (!fbRes.ok || !fbData.access_token) {
+      const errMsg = fbData?.error?.message || `Token exchange failed (HTTP ${fbRes.status})`;
+      logger.error('Meta token exchange failed:', errMsg);
+      throw new AppError(errMsg, 400, 'TOKEN_EXCHANGE_FAILED');
+    }
+
+    await waConfigRepo.upsert({
+      access_token: fbData.access_token,
+      verify_token: `vt_${Date.now()}`,
+      phone_number_id: '',
+      waba_id: '',
+      status: 'disconnected',
+    });
+
+    logger.info('Meta token exchanged and saved');
+    res.json({ success: true });
+  });
+
+  // POST /auth/complete-signup — finalize embedded signup (register webhook + save IDs)
+  router.post('/auth/complete-signup', async (req: Request, res: Response) => {
+    const { wabaId, phoneNumberId } = req.body;
+    if (!wabaId || !phoneNumberId) {
+      throw new AppError('wabaId and phoneNumberId are required', 400, 'VALIDATION_ERROR');
+    }
+
+    const config = await waConfigRepo.get();
+    if (!config?.accessToken) {
+      throw new AppError('Token not found. Run exchange-token first.', 400, 'NOT_CONFIGURED');
+    }
+
+    // Subscribe app to WABA webhooks
+    const subRes = await fetch(
+      `https://graph.facebook.com/v21.0/${wabaId}/subscribed_apps`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${config.accessToken}` },
+      }
+    );
+
+    if (!subRes.ok) {
+      const subData = await subRes.json() as any;
+      const errMsg = subData?.error?.message || `Webhook subscription failed (HTTP ${subRes.status})`;
+      logger.error('Webhook subscription failed:', errMsg);
+      throw new AppError(errMsg, 400, 'WEBHOOK_SUB_FAILED');
+    }
+
+    const webhookUrl = `${process.env.BASE_URL || ''}/api/webhooks/whatsapp`;
+    const verifyToken = config.verifyToken || `vt_${Date.now()}`;
+
+    await waConfigRepo.upsert({
+      id: config.id,
+      phone_number_id: phoneNumberId,
+      waba_id: wabaId,
+      access_token: config.accessToken,
+      verify_token: verifyToken,
+      webhook_url: webhookUrl,
+      status: 'connected',
+      last_verified_at: new Date().toISOString(),
+    });
+
+    logger.info(`WhatsApp embedded signup completed: WABA=${wabaId}, Phone=${phoneNumberId}`);
+    res.json({ success: true, status: 'connected' });
+  });
+
   // GET /templates — list all templates
   router.get('/templates', async (_req: Request, res: Response) => {
     const templates = await waConfigRepo.getTemplates();

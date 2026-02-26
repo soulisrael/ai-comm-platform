@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Wifi, WifiOff, AlertTriangle, RefreshCw, Copy, ChevronDown, ChevronUp,
   Plus, Send, Info, Settings, MessageSquare, BarChart3, Eye, EyeOff,
+  Smartphone, Check, Unplug,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-import { useWaConfig, useWaTemplates, useWhatsAppActions } from '../hooks/useWhatsApp';
+import { useWaConfig, useWaTemplates, useWhatsAppActions, useMetaConfig } from '../hooks/useWhatsApp';
 import { PageLoading } from '../components/LoadingSpinner';
 import { TabsNav } from '../components/TabsNav';
 import toast from 'react-hot-toast';
@@ -37,7 +38,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 export function WhatsApp() {
   const { data: config, isLoading: loadingConfig } = useWaConfig();
   const { data: templatesData, isLoading: loadingTemplates } = useWaTemplates();
-  const { updateConfig, testConnection, sendTest, createTemplate } = useWhatsAppActions();
+  const { updateConfig, testConnection, sendTest, createTemplate, exchangeToken, completeSignup } = useWhatsAppActions();
 
   const [activeTab, setActiveTab] = useState('connection');
 
@@ -58,6 +59,8 @@ export function WhatsApp() {
           updateConfig={updateConfig}
           testConnection={testConnection}
           sendTest={sendTest}
+          exchangeToken={exchangeToken}
+          completeSignup={completeSignup}
         />
       )}
       {activeTab === 'templates' && (
@@ -81,26 +84,102 @@ function ConnectionTab({
   updateConfig,
   testConnection,
   sendTest,
+  exchangeToken,
+  completeSignup,
 }: {
   config: any;
   status: WaConnectionStatus;
   updateConfig: any;
   testConnection: any;
   sendTest: any;
+  exchangeToken: any;
+  completeSignup: any;
 }) {
   const statusInfo = STATUS_MAP[status];
+  const { data: metaConfig } = useMetaConfig();
+  const [showManual, setShowManual] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [showTestDialog, setShowTestDialog] = useState(false);
+  const [testPhone, setTestPhone] = useState('');
+  const [showToken, setShowToken] = useState(false);
   const [form, setForm] = useState({
     phoneNumberId: config?.phoneNumberId || '',
     wabaId: config?.wabaId || '',
     accessToken: config?.accessToken || '',
     verifyToken: config?.verifyToken || '',
   });
-  const [showInstructions, setShowInstructions] = useState(false);
-  const [showToken, setShowToken] = useState(false);
-  const [showTestDialog, setShowTestDialog] = useState(false);
-  const [testPhone, setTestPhone] = useState('');
 
   const webhookUrl = `${window.location.origin}/api/webhooks/whatsapp`;
+
+  // Load Facebook SDK
+  useEffect(() => {
+    if (!metaConfig?.appId) return;
+    if ((window as any).FB) {
+      (window as any).FB.init({ appId: metaConfig.appId, version: 'v21.0' });
+      setSdkReady(true);
+      return;
+    }
+    (window as any).fbAsyncInit = () => {
+      (window as any).FB.init({ appId: metaConfig.appId, version: 'v21.0' });
+      setSdkReady(true);
+    };
+    const script = document.createElement('script');
+    script.src = 'https://connect.facebook.net/en_US/sdk.js';
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, [metaConfig?.appId]);
+
+  // Listen for WA_EMBEDDED_SIGNUP messages from Facebook popup
+  const handleMessage = useCallback(async (event: MessageEvent) => {
+    if (event.origin !== 'https://www.facebook.com' && event.origin !== 'https://web.facebook.com') return;
+    try {
+      const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      if (data.type === 'WA_EMBEDDED_SIGNUP') {
+        const { phone_number_id, waba_id } = data.data;
+        if (phone_number_id && waba_id) {
+          await completeSignup.mutateAsync({ phoneNumberId: phone_number_id, wabaId: waba_id });
+          toast.success('WhatsApp חובר בהצלחה!');
+        }
+      }
+    } catch {
+      // ignore non-JSON messages
+    }
+  }, [completeSignup]);
+
+  useEffect(() => {
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [handleMessage]);
+
+  const handleEmbeddedSignup = () => {
+    const FB = (window as any).FB;
+    if (!FB || !metaConfig?.configId) {
+      toast.error('Facebook SDK לא נטען');
+      return;
+    }
+    setConnecting(true);
+    FB.login((response: any) => {
+      if (response.authResponse?.code) {
+        exchangeToken.mutateAsync({ code: response.authResponse.code })
+          .catch((err: any) => {
+            toast.error(err instanceof Error ? err.message : 'שגיאה בהחלפת token');
+          });
+      } else {
+        toast.error('ההתחברות בוטלה');
+      }
+      setConnecting(false);
+    }, {
+      config_id: metaConfig.configId,
+      response_type: 'code',
+      override_default_response_type: true,
+      extras: { setup: {}, featureType: '', sessionInfoVersion: 2 },
+    });
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,108 +218,63 @@ function ConnectionTab({
     toast.success('הועתק');
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Status card */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${statusInfo.color}`}>
-              <statusInfo.Icon size={24} />
+  // ---------- Connected state ----------
+  if (status === 'connected') {
+    return (
+      <div className="space-y-6">
+        {/* Status card */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-green-50 text-green-600">
+                <Wifi size={24} />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">סטטוס חיבור</p>
+                <p className="text-lg font-semibold text-green-600">מחובר</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">סטטוס חיבור</p>
-              <p className="text-lg font-semibold" style={{ color: status === 'connected' ? '#16a34a' : status === 'error' ? '#dc2626' : '#6b7280' }}>
-                {statusInfo.label}
-              </p>
-            </div>
-          </div>
-          {config?.businessName && (
-            <span className="text-sm text-gray-600">{config.businessName}</span>
-          )}
-        </div>
-      </div>
-
-      {/* Config form */}
-      <form onSubmit={handleSave} className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-        <h2 className="text-sm font-medium text-gray-700">הגדרות חיבור</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number ID</label>
-            <input
-              type="text"
-              value={form.phoneNumberId}
-              onChange={e => setForm(f => ({ ...f, phoneNumberId: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              dir="ltr"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">WABA ID</label>
-            <input
-              type="text"
-              value={form.wabaId}
-              onChange={e => setForm(f => ({ ...f, wabaId: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              dir="ltr"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
-            <div className="relative">
-              <input
-                type={showToken ? 'text' : 'password'}
-                value={form.accessToken}
-                onChange={e => setForm(f => ({ ...f, accessToken: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                dir="ltr"
-              />
-              <button
-                type="button"
-                onClick={() => setShowToken(!showToken)}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                {showToken ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Verify Token</label>
-            <input
-              type="text"
-              value={form.verifyToken}
-              onChange={e => setForm(f => ({ ...f, verifyToken: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              dir="ltr"
-            />
-          </div>
-        </div>
-
-        {/* Webhook URL */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Webhook URL</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={webhookUrl}
-              readOnly
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-600"
-              dir="ltr"
-            />
-            <button type="button" onClick={copyWebhook} className="p-2 text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg">
-              <Copy size={16} />
+            <button
+              onClick={() => updateConfig.mutateAsync({ status: 'disconnected', accessToken: '', phoneNumberId: '', wabaId: '' })}
+              disabled={updateConfig.isPending}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 bg-red-50 rounded-lg hover:bg-red-100 disabled:opacity-50"
+            >
+              <Unplug size={14} />
+              נתק חיבור
             </button>
           </div>
         </div>
 
+        {/* Connection details */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+          <h2 className="text-sm font-medium text-gray-700">פרטי חיבור</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-500 min-w-[120px]">Phone Number ID:</span>
+              <span className="font-mono text-gray-900" dir="ltr">{config?.phoneNumberId || '—'}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-500 min-w-[120px]">WABA ID:</span>
+              <span className="font-mono text-gray-900" dir="ltr">{config?.wabaId || '—'}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-500 min-w-[120px]">Webhook:</span>
+              <div className="flex items-center gap-1">
+                <Check size={14} className="text-green-600" />
+                <span className="text-green-600 text-sm">רשום</span>
+              </div>
+            </div>
+            {config?.lastVerifiedAt && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-gray-500 min-w-[120px]">אומת לאחרונה:</span>
+                <span className="text-gray-900">{new Date(config.lastVerifiedAt).toLocaleString('he-IL')}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Action buttons */}
         <div className="flex gap-2">
-          <button
-            type="submit"
-            disabled={updateConfig.isPending}
-            className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50"
-          >
-            {updateConfig.isPending ? 'שומר...' : 'שמור הגדרות'}
-          </button>
           <button
             type="button"
             onClick={handleTest}
@@ -259,57 +293,213 @@ function ConnectionTab({
             שלח הודעת בדיקה
           </button>
         </div>
-      </form>
 
-      {/* Send test dialog */}
-      {showTestDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="text-sm font-semibold text-gray-900">שלח הודעת בדיקה</h3>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">מספר טלפון</label>
-              <input
-                type="text"
-                value={testPhone}
-                onChange={e => setTestPhone(e.target.value)}
-                placeholder="972501234567"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                dir="ltr"
-              />
+        {/* Send test dialog */}
+        {showTestDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
+              <h3 className="text-sm font-semibold text-gray-900">שלח הודעת בדיקה</h3>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">מספר טלפון</label>
+                <input
+                  type="text"
+                  value={testPhone}
+                  onChange={e => setTestPhone(e.target.value)}
+                  placeholder="972501234567"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  dir="ltr"
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowTestDialog(false)} className="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">ביטול</button>
+                <button
+                  onClick={handleSendTest}
+                  disabled={!testPhone || sendTest.isPending}
+                  className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {sendTest.isPending ? 'שולח...' : 'שלח'}
+                </button>
+              </div>
             </div>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowTestDialog(false)} className="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">ביטול</button>
-              <button
-                onClick={handleSendTest}
-                disabled={!testPhone || sendTest.isPending}
-                className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                {sendTest.isPending ? 'שולח...' : 'שלח'}
-              </button>
+          </div>
+        )}
+
+        {/* Service window info */}
+        <div className="bg-blue-50 rounded-xl border border-blue-200 p-5">
+          <div className="flex items-start gap-3">
+            <Info size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-900 space-y-2">
+              <p className="font-semibold">חלון שירות WhatsApp</p>
+              <p>כשלקוח שולח הודעה נפתח חלון 24 שעות.</p>
+              <p>בתוך החלון: הודעות חופשיות (חינם)</p>
+              <p>מחוץ לחלון: רק templates (בתשלום)</p>
+              <div className="mt-3 pt-3 border-t border-blue-200 space-y-1">
+                <p><span className="font-medium">Marketing</span> — תמיד בתשלום</p>
+                <p><span className="font-medium">Utility בחלון</span> — חינם</p>
+                <p><span className="font-medium">Service (תשובות) בחלון</span> — חינם</p>
+              </div>
+              <p className="mt-2 text-blue-700 font-medium">CTWA Ads → חלון 72h + הכל חינם</p>
             </div>
           </div>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      {/* Connection instructions */}
+  // ---------- Disconnected / Error state ----------
+  return (
+    <div className="space-y-6">
+      {/* Embedded signup card */}
+      <div className="bg-white rounded-xl border border-gray-200 p-8 text-center space-y-5">
+        <div className="flex justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-green-50 flex items-center justify-center">
+            <Smartphone size={32} className="text-green-600" />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold text-gray-900">חבר את WhatsApp Business</h2>
+          <p className="text-sm text-gray-500 max-w-md mx-auto">חבר את חשבון WhatsApp Business שלך בלחיצה אחת</p>
+        </div>
+
+        <button
+          onClick={handleEmbeddedSignup}
+          disabled={!sdkReady || connecting || exchangeToken.isPending}
+          className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-medium rounded-xl hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+        >
+          {connecting || exchangeToken.isPending ? (
+            <RefreshCw size={18} className="animate-spin" />
+          ) : (
+            <MessageSquare size={18} />
+          )}
+          {connecting || exchangeToken.isPending ? 'מתחבר...' : 'התחבר עם WhatsApp Business'}
+        </button>
+
+        <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto text-sm text-gray-600 text-right">
+          <div className="flex items-center gap-2">
+            <Check size={14} className="text-green-600 flex-shrink-0" />
+            <span>יצירת חשבון WABA</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Check size={14} className="text-green-600 flex-shrink-0" />
+            <span>אימות מספר טלפון</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Check size={14} className="text-green-600 flex-shrink-0" />
+            <span>רישום Webhook אוטומטי</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Check size={14} className="text-green-600 flex-shrink-0" />
+            <span>Token אוטומטי</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div className="flex items-center gap-4">
+        <div className="flex-1 h-px bg-gray-200" />
+        <span className="text-sm text-gray-400">או</span>
+        <div className="flex-1 h-px bg-gray-200" />
+      </div>
+
+      {/* Manual setup collapsible */}
       <div className="bg-white rounded-xl border border-gray-200">
         <button
-          onClick={() => setShowInstructions(!showInstructions)}
+          onClick={() => setShowManual(!showManual)}
           className="w-full flex items-center justify-between px-5 py-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
-          <span>הוראות חיבור</span>
-          {showInstructions ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          <span>הגדרה ידנית (למתקדמים)</span>
+          {showManual ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
-        {showInstructions && (
-          <div className="px-5 pb-5 space-y-2 text-sm text-gray-600">
-            <p>1. היכנסו ל-developers.facebook.com</p>
-            <p>2. צרו App חדש (Enterprise)</p>
-            <p>3. הוסיפו WhatsApp כשירות</p>
-            <p>4. העתיקו Phone Number ID ו-WABA ID</p>
-            <p>5. צרו System User + Permanent Token</p>
-            <p>6. הדביקו את ה-Webhook URL בהגדרות ה-App</p>
-            <p>7. לחצו "בדוק חיבור"</p>
-          </div>
+        {showManual && (
+          <form onSubmit={handleSave} className="px-5 pb-5 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number ID</label>
+                <input
+                  type="text"
+                  value={form.phoneNumberId}
+                  onChange={e => setForm(f => ({ ...f, phoneNumberId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">WABA ID</label>
+                <input
+                  type="text"
+                  value={form.wabaId}
+                  onChange={e => setForm(f => ({ ...f, wabaId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
+                <div className="relative">
+                  <input
+                    type={showToken ? 'text' : 'password'}
+                    value={form.accessToken}
+                    onChange={e => setForm(f => ({ ...f, accessToken: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    dir="ltr"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowToken(!showToken)}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showToken ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Verify Token</label>
+                <input
+                  type="text"
+                  value={form.verifyToken}
+                  onChange={e => setForm(f => ({ ...f, verifyToken: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            {/* Webhook URL */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Webhook URL</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={webhookUrl}
+                  readOnly
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-600"
+                  dir="ltr"
+                />
+                <button type="button" onClick={copyWebhook} className="p-2 text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg">
+                  <Copy size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={updateConfig.isPending}
+                className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              >
+                {updateConfig.isPending ? 'שומר...' : 'שמור הגדרות'}
+              </button>
+              <button
+                type="button"
+                onClick={handleTest}
+                disabled={testConnection.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={testConnection.isPending ? 'animate-spin' : ''} />
+                בדוק חיבור
+              </button>
+            </div>
+          </form>
         )}
       </div>
 
