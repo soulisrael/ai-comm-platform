@@ -4,6 +4,7 @@ import { CustomAgentWithBrain } from '../types/custom-agent';
 import { Message } from '../types/message';
 import { Contact } from '../types/contact';
 import { PromptBuilder } from './prompt-builder';
+import { costTracker } from '../services/cost-tracker';
 import logger from '../services/logger';
 
 export interface AgentRunnerResult {
@@ -76,11 +77,12 @@ export class AgentRunner {
       };
     }
 
-    // Build prompt with topics
+    // Build prompt with topics — pass currentMessage for brain relevance filtering
     const { systemPrompt, messages } = this.promptBuilder.buildCustomAgentPrompt(
       agent,
       conversationHistory,
-      contact
+      contact,
+      message
     );
 
     // Add current message if not already in history
@@ -89,15 +91,20 @@ export class AgentRunner {
       messages.push({ role: 'user', content: message });
     }
 
-    // Call Claude with agent-specific settings
+    // Call Claude with caching and cost-optimized settings
     const settings = agent.settings;
     try {
       const result = await this.claude.chat({
         systemPrompt,
         messages,
         temperature: settings.temperature,
-        maxTokens: settings.maxTokens,
+        maxTokens: 300,
+        cacheSystemPrompt: true,
       });
+
+      // Track cost
+      const cacheHit = result.cacheReadInputTokens > 0;
+      costTracker.trackApiCall(agent.id, result.inputTokens, result.outputTokens, cacheHit, result.model);
 
       const response = result.content;
 

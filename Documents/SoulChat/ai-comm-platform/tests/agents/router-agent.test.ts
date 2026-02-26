@@ -97,27 +97,28 @@ describe('RouterAgent', () => {
       router = new RouterAgent(mockClaude, promptBuilder, mockAgentRepo);
     });
 
-    it('should route to correct agent via AI', async () => {
-      vi.mocked(mockClaude.chatJSON).mockResolvedValue({
-        data: { agentId: 'agent-kiryat-ono', confidence: 0.9, reasoning: 'הלקוח שואל על מוזיקה בקריית אונו' },
-        inputTokens: 100, outputTokens: 50, model: 'test',
-      });
-
+    it('should route to correct agent via keyword match first (no AI call)', async () => {
       const result = await router.routeToCustomAgent('אני מחפש חוג מוזיקה בקריית אונו');
 
+      // Keyword match finds it first, no AI call needed
       expect(result.agentId).toBe('agent-kiryat-ono');
-      expect(result.confidence).toBe(0.9);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.6);
+      expect(mockClaude.chatJSON).not.toHaveBeenCalled();
     });
 
-    it('should use keyword fallback when AI confidence is low', async () => {
+    it('should route via AI when keyword match confidence is low', async () => {
       vi.mocked(mockClaude.chatJSON).mockResolvedValue({
-        data: { agentId: 'agent-default', confidence: 0.3, reasoning: 'לא ברור' },
-        inputTokens: 100, outputTokens: 50, model: 'test',
+        data: { agentId: 'agent-kiryat-ono', confidence: 0.9, reasoning: 'הלקוח שואל על מוזיקה בקריית אונו' },
+        inputTokens: 100, outputTokens: 50,
+        cacheCreationInputTokens: 100, cacheReadInputTokens: 0,
+        model: 'test',
       });
 
-      const result = await router.routeToCustomAgent('אני רוצה שחייה');
+      const result = await router.routeToCustomAgent('שלום, מה שלומכם? רציתי לשאול משהו');
 
-      expect(result.agentId).toBe('agent-ramat-hasharon');
+      // No keyword match -> AI routes it
+      expect(result.agentId).toBe('agent-kiryat-ono');
+      expect(result.confidence).toBe(0.9);
     });
 
     it('should use keyword fallback when AI fails', async () => {
@@ -129,24 +130,46 @@ describe('RouterAgent', () => {
     });
 
     it('should fall back to default agent when no match', async () => {
-      vi.mocked(mockClaude.chatJSON).mockRejectedValue(new Error('API error'));
+      vi.mocked(mockClaude.chatJSON).mockResolvedValue({
+        data: { agentId: 'agent-default', confidence: 0.4, reasoning: 'לא ברור' },
+        inputTokens: 100, outputTokens: 50,
+        cacheCreationInputTokens: 0, cacheReadInputTokens: 0,
+        model: 'test',
+      });
 
       const result = await router.routeToCustomAgent('שלום, מה שלומכם?');
 
       expect(result.agentId).toBe('agent-default');
-      expect(result.confidence).toBeLessThanOrEqual(0.3);
     });
 
     it('should validate agent ID exists', async () => {
       vi.mocked(mockClaude.chatJSON).mockResolvedValue({
         data: { agentId: 'nonexistent-agent', confidence: 0.9, reasoning: 'test' },
-        inputTokens: 100, outputTokens: 50, model: 'test',
+        inputTokens: 100, outputTokens: 50,
+        cacheCreationInputTokens: 0, cacheReadInputTokens: 0,
+        model: 'test',
       });
 
+      // 'test' has no keyword match, so AI is called
       const result = await router.routeToCustomAgent('test');
 
       expect(result.agentId).toBe('agent-default');
       expect(result.confidence).toBe(0.5);
+    });
+
+    it('should stay with current agent when message matches', async () => {
+      vi.mocked(mockAgentRepo.getWithBrain).mockResolvedValue(createTestAgents()[0]);
+
+      const result = await router.routeToCustomAgent(
+        'שאלה נוספת על מוזיקה',
+        undefined,
+        'agent-kiryat-ono'
+      );
+
+      expect(result.agentId).toBe('agent-kiryat-ono');
+      expect(result.confidence).toBe(0.9);
+      expect(result.reasoning).toBe('נשאר באותו סוכן');
+      expect(mockClaude.chatJSON).not.toHaveBeenCalled();
     });
 
     it('should throw when no active agents', async () => {

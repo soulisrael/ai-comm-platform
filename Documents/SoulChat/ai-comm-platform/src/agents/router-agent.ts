@@ -6,6 +6,7 @@ import { ClaudeAPI } from '../services/claude-api';
 import { PromptBuilder } from './prompt-builder';
 import { CustomAgentRepository } from '../database/repositories/custom-agent-repository';
 import { CustomAgentWithBrain } from '../types/custom-agent';
+import { costTracker } from '../services/cost-tracker';
 
 interface CustomRouterResult {
   agentId: string;
@@ -33,6 +34,7 @@ export class RouterAgent extends BaseAgent {
 
   /**
    * Route a message to the best matching custom agent.
+   * Optimized order: (a) stay with current, (b) keyword match, (c) AI, (d) default
    */
   async routeToCustomAgent(
     message: string,
@@ -47,9 +49,25 @@ export class RouterAgent extends BaseAgent {
       throw new Error('No active custom agents found');
     }
 
-    // Try AI routing first
-    let result: CustomRouterResult | null = null;
+    // (a) If conversation has active agent + same topic -> stay (0 API calls)
+    if (currentAgentId) {
+      const currentAgent = await this.customAgentRepo.getWithBrain(currentAgentId);
+      if (currentAgent) {
+        const matchesCurrent = this.matchesAgent(message, currentAgent);
+        if (matchesCurrent) {
+          return { agentId: currentAgentId, confidence: 0.9, reasoning: 'נשאר באותו סוכן' };
+        }
+      }
+    }
 
+    // (b) Keyword match first (0 API calls)
+    const keywordResult = this.keywordFallbackCustom(message, activeAgents);
+    if (keywordResult.confidence >= this.confidenceThreshold) {
+      return keywordResult;
+    }
+
+    // (c) Only if no keyword match -> Claude with caching (max_tokens: 100)
+    let result: CustomRouterResult | null = null;
     try {
       const { systemPrompt, messages } = this.promptBuilder.buildCustomRouterPrompt(
         activeAgents,
@@ -61,18 +79,23 @@ export class RouterAgent extends BaseAgent {
         systemPrompt,
         messages,
         temperature: 0.1,
-        maxTokens: 200,
+        maxTokens: 100,
+        cacheSystemPrompt: true,
       });
 
       result = response.data;
+
+      // Track cost for router AI call
+      const cacheHit = response.cacheReadInputTokens > 0;
+      costTracker.trackApiCall('router', response.inputTokens, response.outputTokens, cacheHit, response.model);
+
       this.log('info', `AI routing: agent=${result.agentId}, confidence=${result.confidence}`);
     } catch (err) {
       this.log('warn', `AI routing failed, falling back to keyword matching: ${err}`);
     }
 
-    // If confidence is low or AI failed, try keyword fallback
+    // Use AI result if confidence is high enough, otherwise use keyword result
     if (!result || result.confidence < this.confidenceThreshold) {
-      const keywordResult = this.keywordFallbackCustom(message, activeAgents);
       if (!result || keywordResult.confidence > result.confidence) {
         result = keywordResult;
       }
@@ -81,7 +104,7 @@ export class RouterAgent extends BaseAgent {
     // Validate the agent ID exists
     const validAgent = activeAgents.find(a => a.id === result!.agentId);
     if (!validAgent) {
-      // Fall back to default agent
+      // (d) Fall back to default agent
       const defaultAgent = activeAgents.find(a => a.isDefault) || activeAgents[0];
       result = {
         agentId: defaultAgent.id,
@@ -91,6 +114,29 @@ export class RouterAgent extends BaseAgent {
     }
 
     return result;
+  }
+
+  /**
+   * Check if a message matches an agent's keywords or brain titles.
+   */
+  private matchesAgent(message: string, agent: CustomAgentWithBrain): boolean {
+    const lowerMessage = message.toLowerCase();
+
+    // Check routing keywords
+    for (const keyword of agent.routingKeywords) {
+      if (lowerMessage.includes(keyword.toLowerCase())) {
+        return true;
+      }
+    }
+
+    // Check brain entry titles
+    for (const entry of agent.brain) {
+      if (lowerMessage.includes(entry.title.toLowerCase())) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**

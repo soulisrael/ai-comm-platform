@@ -7,6 +7,7 @@ import { PromptBuilder } from './prompt-builder';
 import { RouterAgent } from './router-agent';
 import { AgentRunner, AgentRunnerResult } from './agent-runner';
 import { CustomAgentRepository } from '../database/repositories/custom-agent-repository';
+import { costTracker } from '../services/cost-tracker';
 import logger from '../services/logger';
 
 export interface OrchestratorResult {
@@ -80,7 +81,8 @@ export class AgentOrchestrator {
     if (!conversation.customAgentId) {
       const routeResult = await this.router.routeToCustomAgent(
         incomingMessage.content,
-        conversation.messages
+        conversation.messages,
+        undefined
       );
 
       conversation.customAgentId = routeResult.agentId;
@@ -190,6 +192,16 @@ export class AgentOrchestrator {
     });
     conversation.messages.push(outgoingMessage);
     conversation.status = 'waiting';
+
+    // Log daily cost summary
+    const dailyCost = costTracker.getDailyCost();
+    if (dailyCost.totalCalls > 0 && dailyCost.totalCalls % 10 === 0) {
+      logger.info('[COST SUMMARY]', {
+        totalCalls: dailyCost.totalCalls,
+        estimatedCost: `$${dailyCost.estimatedCost.toFixed(4)}`,
+        cacheHitRate: `${(dailyCost.cacheHitRate * 100).toFixed(1)}%`,
+      });
+    }
 
     return { response, conversation, routingDecision };
   }

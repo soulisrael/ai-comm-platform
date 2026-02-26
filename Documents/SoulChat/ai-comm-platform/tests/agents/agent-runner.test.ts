@@ -43,7 +43,9 @@ describe('AgentRunner', () => {
     mockClaude = {
       chat: vi.fn().mockResolvedValue({
         content: 'שלום! חוג המוזיקה שלנו מתקיים בימי שלישי.',
-        inputTokens: 200, outputTokens: 100, model: 'test',
+        inputTokens: 200, outputTokens: 100,
+        cacheCreationInputTokens: 0, cacheReadInputTokens: 0,
+        model: 'test',
       }),
       chatJSON: vi.fn(),
       getUsage: vi.fn().mockReturnValue({ totalInputTokens: 0, totalOutputTokens: 0, totalCalls: 0 }),
@@ -100,7 +102,8 @@ describe('AgentRunner', () => {
       const callArgs = vi.mocked(mockClaude.chat).mock.calls[0][0];
       expect(callArgs.systemPrompt).toContain('קריית אונו');
       expect(callArgs.temperature).toBe(0.7);
-      expect(callArgs.maxTokens).toBe(1024);
+      expect(callArgs.maxTokens).toBe(300);
+      expect(callArgs.cacheSystemPrompt).toBe(true);
     });
 
     it('should include conversation history in messages', async () => {

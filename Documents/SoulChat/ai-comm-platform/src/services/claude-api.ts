@@ -12,12 +12,15 @@ export interface ChatOptions {
   temperature?: number;
   maxTokens?: number;
   model?: string;
+  cacheSystemPrompt?: boolean;
 }
 
 export interface ChatResult {
   content: string;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
   model: string;
 }
 
@@ -43,9 +46,18 @@ export class ClaudeAPI {
   }
 
   async chat(options: ChatOptions): Promise<ChatResult> {
-    const { systemPrompt, messages, temperature = 0.7, maxTokens = 1024, model = DEFAULT_MODEL } = options;
+    const { systemPrompt, messages, temperature = 0.7, maxTokens = 1024, model = DEFAULT_MODEL, cacheSystemPrompt = false } = options;
 
     let lastError: Error | null = null;
+
+    // Build system parameter: cached block array or plain string
+    const system = cacheSystemPrompt
+      ? [{
+          type: "text" as const,
+          text: systemPrompt,
+          cache_control: { type: "ephemeral" as const },
+        }]
+      : systemPrompt;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -53,7 +65,7 @@ export class ClaudeAPI {
           model,
           max_tokens: maxTokens,
           temperature,
-          system: systemPrompt,
+          system,
           messages: messages.map(m => ({ role: m.role, content: m.content })),
         });
 
@@ -64,6 +76,9 @@ export class ClaudeAPI {
 
         const inputTokens = response.usage.input_tokens;
         const outputTokens = response.usage.output_tokens;
+        const usageRecord = response.usage as unknown as Record<string, number>;
+        const cacheCreationInputTokens = usageRecord.cache_creation_input_tokens || 0;
+        const cacheReadInputTokens = usageRecord.cache_read_input_tokens || 0;
 
         this.usage.totalInputTokens += inputTokens;
         this.usage.totalOutputTokens += outputTokens;
@@ -73,10 +88,12 @@ export class ClaudeAPI {
           model,
           inputTokens,
           outputTokens,
+          cacheCreationInputTokens,
+          cacheReadInputTokens,
           attempt,
         });
 
-        return { content, inputTokens, outputTokens, model };
+        return { content, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, model };
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
         logger.warn(`Claude API attempt ${attempt}/${MAX_RETRIES} failed`, {
@@ -110,6 +127,8 @@ export class ClaudeAPI {
         data,
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
+        cacheCreationInputTokens: result.cacheCreationInputTokens,
+        cacheReadInputTokens: result.cacheReadInputTokens,
         model: result.model,
       };
     } catch {

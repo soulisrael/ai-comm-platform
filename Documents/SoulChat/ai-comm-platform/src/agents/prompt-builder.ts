@@ -3,9 +3,110 @@ import { Contact } from '../types/contact';
 import { CustomAgentWithBrain, BrainEntry } from '../types/custom-agent';
 import logger from '../services/logger';
 
-const MAX_HISTORY_MESSAGES = 20;
+const MAX_HISTORY_MESSAGES = 10;
+const MAX_HISTORY_TOKENS = 2000;
+const MAX_BRAIN_ENTRIES = 5;
+const ALWAYS_INCLUDE_CATEGORIES = ['script', 'policy'];
 
 export class PromptBuilder {
+  /**
+   * Trim conversation history to stay within limits.
+   */
+  trimHistory(messages: Message[], maxMessages = MAX_HISTORY_MESSAGES, maxTokens = MAX_HISTORY_TOKENS): Message[] {
+    if (messages.length <= maxMessages) {
+      // Check token count even if under message limit
+      const totalTokens = messages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
+      if (totalTokens <= maxTokens) {
+        return messages;
+      }
+    }
+
+    // Take last maxMessages
+    let trimmed = messages.slice(-maxMessages);
+
+    // Rough token count: content.length / 4
+    let totalTokens = trimmed.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
+
+    // Keep removing oldest until under maxTokens
+    while (totalTokens > maxTokens && trimmed.length > 1) {
+      const removed = trimmed.shift()!;
+      totalTokens -= Math.ceil(removed.content.length / 4);
+    }
+
+    return trimmed;
+  }
+
+  /**
+   * Filter brain entries to only relevant ones.
+   */
+  getRelevantBrain(brain: BrainEntry[], message: string, maxEntries = MAX_BRAIN_ENTRIES): BrainEntry[] {
+    if (brain.length <= maxEntries) {
+      return brain;
+    }
+
+    // Always include script and policy entries
+    const alwaysInclude = brain.filter(e => ALWAYS_INCLUDE_CATEGORIES.includes(e.category));
+    const remaining = brain.filter(e => !ALWAYS_INCLUDE_CATEGORIES.includes(e.category));
+
+    // If always-include already fills the quota, return them
+    if (alwaysInclude.length >= maxEntries) {
+      return alwaysInclude.slice(0, maxEntries);
+    }
+
+    // Score remaining by keyword overlap with message
+    const scored = remaining.map(entry => ({
+      entry,
+      score: this.calculateRelevance(entry, message),
+    }));
+
+    // Sort by score descending
+    scored.sort((a, b) => b.score - a.score);
+
+    // Take top entries to fill remaining slots
+    const slotsLeft = maxEntries - alwaysInclude.length;
+    const topEntries = scored.slice(0, slotsLeft).map(s => s.entry);
+
+    // Deduplicate (entries already in alwaysInclude won't be in remaining)
+    return [...alwaysInclude, ...topEntries];
+  }
+
+  /**
+   * Calculate relevance score between a brain entry and a message.
+   */
+  calculateRelevance(entry: BrainEntry, message: string): number {
+    const messageWords = message.toLowerCase().split(/\s+/);
+    const titleWords = entry.title.toLowerCase().split(/\s+/);
+    const contentWords = entry.content.toLowerCase().split(/\s+/).slice(0, 50);
+
+    let score = 0;
+
+    // Title matches are worth 3x
+    score += this.countOverlap(messageWords, titleWords) * 3;
+
+    // Content matches are worth 1x
+    score += this.countOverlap(messageWords, contentWords);
+
+    // Metadata key matches
+    if (entry.metadata && Object.keys(entry.metadata).length > 0) {
+      const metaWords = Object.keys(entry.metadata).map(k => k.toLowerCase());
+      const metaValues = Object.values(entry.metadata)
+        .filter(v => typeof v === 'string')
+        .flatMap(v => (v as string).toLowerCase().split(/\s+/));
+      score += this.countOverlap(messageWords, [...metaWords, ...metaValues]);
+    }
+
+    return score;
+  }
+
+  private countOverlap(wordsA: string[], wordsB: string[]): number {
+    let count = 0;
+    for (const word of wordsA) {
+      if (word.length < 2) continue; // Skip single-char words
+      if (wordsB.includes(word)) count++;
+    }
+    return count;
+  }
+
   /**
    * Build a router prompt that lists all active custom agents for classification.
    */
@@ -48,11 +149,11 @@ export class PromptBuilder {
 ענה אך ורק ב-JSON בפורמט הבא:
 {"agentId": "...", "confidence": 0.0-1.0, "reasoning": "..."}`;
 
-    // Add conversation history context
+    // Add trimmed conversation history context
     if (history && history.length > 0) {
-      const recentHistory = history.slice(-5);
+      const trimmedHistory = this.trimHistory(history, 5, 1000);
       systemPrompt += `\n\nהקשר שיחה אחרון:\n`;
-      for (const msg of recentHistory) {
+      for (const msg of trimmedHistory) {
         const sender = msg.direction === 'inbound' ? 'לקוח' : 'סוכן';
         systemPrompt += `${sender}: ${msg.content}\n`;
       }
@@ -70,7 +171,8 @@ export class PromptBuilder {
   buildCustomAgentPrompt(
     agent: CustomAgentWithBrain,
     history: Message[],
-    contact?: Contact | null
+    contact?: Contact | null,
+    currentMessage?: string
   ): {
     systemPrompt: string;
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -100,11 +202,15 @@ export class PromptBuilder {
       systemPrompt += '\n=== סוף מסמך מרכזי ===';
     }
 
-    // Build knowledge base from brain entries
+    // Build knowledge base from relevant brain entries only
     if (agent.brain.length > 0) {
+      const relevantBrain = currentMessage
+        ? this.getRelevantBrain(agent.brain, currentMessage)
+        : agent.brain;
+
       systemPrompt += '\n\n=== בסיס הידע שלך ===\n';
 
-      for (const entry of agent.brain) {
+      for (const entry of relevantBrain) {
         systemPrompt += this.formatBrainEntry(entry);
       }
 
@@ -138,11 +244,11 @@ export class PromptBuilder {
 אסור להוסיף שורות ריקות בין משפטים. רק ירידת שורה רגילה, בלי רווח כפול.
 כתוב טקסט רגיל וטבעי בלבד, כמו הודעת וואטסאפ.`;
 
-    // Build message history
-    const recentMessages = history.slice(-MAX_HISTORY_MESSAGES);
+    // Trim message history
+    const trimmedHistory = this.trimHistory(history);
     const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
-    for (const msg of recentMessages) {
+    for (const msg of trimmedHistory) {
       messages.push({
         role: msg.direction === 'inbound' ? 'user' : 'assistant',
         content: msg.content,
@@ -154,6 +260,7 @@ export class PromptBuilder {
       systemPromptLength: systemPrompt.length,
       messageCount: messages.length,
       brainEntryCount: agent.brain.length,
+      relevantBrainCount: currentMessage ? this.getRelevantBrain(agent.brain, currentMessage).length : agent.brain.length,
       hasMainDocument: !!agent.mainDocumentText,
     });
 
