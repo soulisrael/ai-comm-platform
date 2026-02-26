@@ -58,7 +58,7 @@ export function ChatBubble({ message }: { message: Message }) {
         )}
         <div
           className={cn(
-            'rounded-lg px-3 py-2 text-sm',
+            'rounded-lg px-3 py-2 text-sm whitespace-pre-wrap',
             isInbound && 'bg-gray-100 text-gray-900',
             !isInbound && !isHuman && 'bg-blue-500 text-white',
             isHuman && 'bg-green-500 text-white'
