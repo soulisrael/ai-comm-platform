@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Wifi, WifiOff, AlertTriangle, RefreshCw, Copy, ChevronDown, ChevronUp,
-  Plus, Send, Info, Settings, MessageSquare, BarChart3,
+  Plus, Send, Info, Settings, MessageSquare, BarChart3, Eye, EyeOff,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { useWaConfig, useWaTemplates, useWhatsAppActions } from '../hooks/useWhatsApp';
@@ -96,10 +96,11 @@ function ConnectionTab({
     verifyToken: config?.verifyToken || '',
   });
   const [showInstructions, setShowInstructions] = useState(false);
+  const [showToken, setShowToken] = useState(false);
   const [showTestDialog, setShowTestDialog] = useState(false);
   const [testPhone, setTestPhone] = useState('');
 
-  const webhookUrl = 'https://your-domain.com/api/webhooks/whatsapp';
+  const webhookUrl = `${window.location.origin}/api/webhooks/whatsapp`;
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,13 +187,22 @@ function ConnectionTab({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
-            <input
-              type="password"
-              value={form.accessToken}
-              onChange={e => setForm(f => ({ ...f, accessToken: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              dir="ltr"
-            />
+            <div className="relative">
+              <input
+                type={showToken ? 'text' : 'password'}
+                value={form.accessToken}
+                onChange={e => setForm(f => ({ ...f, accessToken: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                dir="ltr"
+              />
+              <button
+                type="button"
+                onClick={() => setShowToken(!showToken)}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showToken ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Verify Token</label>

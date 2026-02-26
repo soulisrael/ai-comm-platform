@@ -5,6 +5,7 @@ interface Props {
   tags: string[];
   onChange: (tags: string[]) => void;
   placeholder?: string;
+  duplicateMessage?: string;
 }
 
 export function TagInput({ tags, onChange, placeholder = 'הוסף מילת מפתח...' }: Props) {
