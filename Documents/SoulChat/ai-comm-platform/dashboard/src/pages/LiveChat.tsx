@@ -70,6 +70,7 @@ export function LiveChat() {
   const [demoInput, setDemoInput] = useState('');
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoConvId, setDemoConvId] = useState<string | null>(null);
+  const [demoUserId] = useState(() => `demo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
   const demoEndRef = useRef<HTMLDivElement>(null);
 
   // Agent switch dropdown
@@ -162,10 +163,10 @@ export function LiveChat() {
 
     try {
       const res = await api.post<IncomingResponse>('/api/messages/incoming', {
-        channelUserId: `demo-${Date.now()}`,
+        channelUserId: demoUserId,
         channel: 'web',
         content: text,
-        senderName: 'Demo User',
+        senderName: 'משתמש דמו',
       });
 
       if (res.conversationId) setDemoConvId(res.conversationId);
@@ -375,7 +376,7 @@ export function LiveChat() {
             endRef={demoEndRef}
             onInputChange={setDemoInput}
             onSend={sendDemoMessage}
-            onClose={() => { setDemoMode(false); setSearchParams({}); }}
+            onClose={() => { setDemoMode(false); if (demoConvId) setSearchParams({ id: demoConvId }); else setSearchParams({}); }}
           />
         ) : !selectedId ? (
           <div className="flex-1 flex items-center justify-center">

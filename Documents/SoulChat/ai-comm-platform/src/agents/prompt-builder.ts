@@ -78,14 +78,19 @@ export class PromptBuilder {
     // Start with the agent's system prompt
     let systemPrompt = agent.systemPrompt || `אתה סוכן שירות לקוחות בשם "${agent.name}".`;
 
-    // Enforce language
+    // Enforce language and conversational style
     const lang = agent.settings?.language || 'Hebrew';
     if (lang === 'Hebrew' || lang === 'he') {
-      systemPrompt += '\n\nחשוב: ענה תמיד בשפה העברית בלבד.';
+      systemPrompt += `\n\nחשוב:
+- ענה תמיד בשפה העברית בלבד.
+- דבר בצורה טבעית ושוטפת, כמו בשיחה רגילה בין אנשים.
+- אל תשתמש בסימני markdown כמו כוכביות (*), מקפים (-), סולמיות (#), או מספור.
+- השתמש ברווחים ושורות חדשות כדי להפריד בין רעיונות.
+- תשובות קצרות וברורות, 2-4 משפטים אלא אם הלקוח ביקש פירוט.`;
     } else if (lang === 'Arabic' || lang === 'ar') {
-      systemPrompt += '\n\nمهم: أجب دائمًا باللغة العربية فقط.';
+      systemPrompt += '\n\nمهم: أجب دائمًا باللغة العربية فقط. تحدث بشكل طبيعي بدون علامات markdown.';
     } else if (lang === 'English' || lang === 'en') {
-      systemPrompt += '\n\nImportant: Always respond in English only.';
+      systemPrompt += '\n\nImportant: Always respond in English only. Speak naturally without markdown formatting, asterisks, or bullet points.';
     }
 
     // Add main document content if available
@@ -124,6 +129,11 @@ export class PromptBuilder {
       systemPrompt += `\n\n## כללי העברה`;
       systemPrompt += `\n${JSON.stringify(agent.transferRules, null, 2)}`;
     }
+
+    // Final formatting instruction — placed last for maximum influence
+    systemPrompt += `\n\nסגנון כתיבה (חובה לציית):
+ענה כאילו אתה מדבר בשיחה רגילה. אסור בהחלט להשתמש בכוכביות, מקפים, מספור, סולמיות, או כל סימן עיצוב אחר.
+כתוב טקסט רגיל בלבד. השתמש בשורות חדשות כדי להפריד בין נושאים.`;
 
     // Build message history
     const recentMessages = history.slice(-MAX_HISTORY_MESSAGES);
