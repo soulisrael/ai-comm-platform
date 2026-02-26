@@ -24,11 +24,22 @@ import { createAnalyticsRouter } from './routes/analytics';
 import { createWebhooksRouter } from './routes/webhooks';
 import { createAutomationRouter } from './routes/automation';
 import { createCustomAgentsRouter } from './routes/custom-agents';
-import { createBrainRouter } from './routes/brain';
+import { createBrainRouter, createAgentBrainRouter } from './routes/brain';
 import { createCompanyRouter } from './routes/company';
+import { createTeamRouter } from './routes/team';
+import { createFlowsRouter } from './routes/flows';
+import { createWhatsAppRouter } from './routes/whatsapp';
+import { createCostsRouter } from './routes/costs';
+import { createWaWebhookRouter } from './routes/wa-webhook';
 import { CustomAgentRepository } from '../database/repositories/custom-agent-repository';
 import { BrainRepository } from '../database/repositories/brain-repository';
+import { TeamRepository } from '../database/repositories/team-repository';
+import { FlowRepository } from '../database/repositories/flow-repository';
+import { WaConfigRepository } from '../database/repositories/wa-config-repository';
 import { getSupabaseClient } from '../database/supabase-client';
+import { FlowEngine as NewFlowEngine } from '../engines/flow-engine';
+import { MessageBatcher } from '../services/message-batcher';
+import { ServiceWindowManager } from '../services/service-window';
 import { FlowEngine } from '../automation/flow-engine';
 import { TriggerManager } from '../automation/triggers/trigger-manager';
 import { BroadcastManager } from '../automation/broadcast';
@@ -98,9 +109,15 @@ export async function createApp(options?: {
   const supabase = getSupabaseClient();
   let customAgentRepo: CustomAgentRepository | undefined;
   let brainRepo: BrainRepository | undefined;
+  let teamRepo: TeamRepository | undefined;
+  let flowRepoNew: FlowRepository | undefined;
+  let waConfigRepo: WaConfigRepository | undefined;
   if (supabase) {
     customAgentRepo = new CustomAgentRepository(supabase);
     brainRepo = new BrainRepository(supabase);
+    teamRepo = new TeamRepository(supabase);
+    flowRepoNew = new FlowRepository(supabase);
+    waConfigRepo = new WaConfigRepository(supabase);
   }
 
   // Initialize engine
@@ -116,6 +133,24 @@ export async function createApp(options?: {
   const conversationManager = new ConversationManager(conversationStore);
   const contactManager = new ContactManager(contactStore);
   const engine = new ConversationEngine(orchestrator, conversationManager, contactManager);
+
+  // New engines (Phase 2/3)
+  let newFlowEngine: NewFlowEngine | undefined;
+  let serviceWindow: ServiceWindowManager | undefined;
+  let messageBatcher: MessageBatcher | undefined;
+
+  if (supabase && flowRepoNew) {
+    newFlowEngine = new NewFlowEngine(flowRepoNew);
+    serviceWindow = new ServiceWindowManager(supabase);
+    messageBatcher = new MessageBatcher(async (conversationId, combinedMessage) => {
+      // Process batched messages through the conversation engine
+      await engine.handleIncomingMessage({
+        channelUserId: conversationId,
+        channel: 'whatsapp',
+        content: combinedMessage,
+      });
+    });
+  }
 
   // Initialize channel adapters
   const channelManager = new ChannelManager();
@@ -205,7 +240,7 @@ export async function createApp(options?: {
 
   // API Routes
   app.use('/api/messages', createMessagesRouter(engine));
-  app.use('/api/conversations', createConversationsRouter(engine));
+  app.use('/api/conversations', createConversationsRouter(engine, serviceWindow));
   app.use('/api/contacts', createContactsRouter(engine));
   app.use('/api/analytics', createAnalyticsRouter(engine));
   app.use('/api/webhooks', createWebhooksRouter(channelManager, engine));
@@ -214,8 +249,34 @@ export async function createApp(options?: {
   // Custom agent & brain routes (only if Supabase available)
   if (customAgentRepo && brainRepo) {
     const agentRunner = orchestrator.getAgentRunner();
-    app.use('/api/custom-agents', createCustomAgentsRouter(customAgentRepo, brainRepo, agentRunner, claude));
+    const agentsRouter = createCustomAgentsRouter(customAgentRepo, brainRepo, agentRunner, claude);
+    // Mount nested brain routes on custom-agents
+    agentsRouter.use('/:agentId/brain', createAgentBrainRouter(brainRepo));
+    app.use('/api/custom-agents', agentsRouter);
     app.use('/api/brain', createBrainRouter(brainRepo));
+  }
+
+  // Team routes
+  if (teamRepo) {
+    app.use('/api/team', createTeamRouter(teamRepo));
+  }
+
+  // Flow routes (new engine)
+  if (flowRepoNew && newFlowEngine) {
+    app.use('/api/flows', createFlowsRouter(flowRepoNew, newFlowEngine));
+  }
+
+  // WhatsApp routes
+  if (waConfigRepo) {
+    app.use('/api/whatsapp', createWhatsAppRouter(waConfigRepo));
+  }
+
+  // Cost tracking routes
+  app.use('/api/costs', createCostsRouter());
+
+  // WhatsApp webhook (no api-key auth — uses Meta verify token)
+  if (waConfigRepo && messageBatcher && serviceWindow) {
+    app.use('/api/webhooks', createWaWebhookRouter(waConfigRepo, engine, messageBatcher, serviceWindow));
   }
 
   // Company settings route (stub — returns empty)
@@ -224,7 +285,7 @@ export async function createApp(options?: {
   // Error handler (must be last)
   app.use(errorHandler);
 
-  return { app, engine, channelManager, flowEngine, broadcastManager, templateManager, triggerManager, customAgentRepo, brainRepo };
+  return { app, engine, channelManager, flowEngine, broadcastManager, templateManager, triggerManager, customAgentRepo, brainRepo, teamRepo, flowRepoNew, waConfigRepo, newFlowEngine, serviceBatcher: messageBatcher, serviceWindow };
 }
 
 // Start server if run directly

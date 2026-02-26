@@ -2,9 +2,10 @@ import { Router, Request, Response } from 'express';
 import { ConversationEngine } from '../../conversation/conversation-engine';
 import { ConversationStatus, AgentType } from '../../types/conversation';
 import { ChannelType } from '../../types/message';
+import { ServiceWindowManager } from '../../services/service-window';
 import { AppError } from '../middleware/error-handler';
 
-export function createConversationsRouter(engine: ConversationEngine): Router {
+export function createConversationsRouter(engine: ConversationEngine, serviceWindow?: ServiceWindowManager): Router {
   const router = Router();
   const convManager = engine.getConversationManager();
   const orchestrator = engine.getOrchestrator();
@@ -366,6 +367,62 @@ export function createConversationsRouter(engine: ConversationEngine): Router {
 
     orchestrator.switchCustomAgent(conversation, targetAgentId);
     res.json({ success: true, customAgentId: targetAgentId });
+  });
+
+  /**
+   * @swagger
+   * /api/conversations/{id}/transfer-to-human:
+   *   post:
+   *     summary: Transfer to another human agent
+   *     tags: [Conversations]
+   */
+  router.post('/:id/transfer-to-human', (req: Request, res: Response) => {
+    const id = param(req, 'id');
+    const conversation = convManager.getConversation(id);
+    if (!conversation) {
+      throw new AppError('Conversation not found', 404, 'NOT_FOUND');
+    }
+
+    const { toHumanId, note } = req.body || {};
+    if (!toHumanId) {
+      throw new AppError('toHumanId is required', 400, 'VALIDATION_ERROR');
+    }
+
+    const previousHuman = conversation.context.customFields.humanAgentId;
+    convManager.updateStatus(id, 'human_active');
+    convManager.updateContext(id, {
+      customFields: {
+        ...conversation.context.customFields,
+        humanAgentId: toHumanId,
+        transferredFrom: previousHuman || null,
+        transferNote: note || null,
+      },
+    });
+
+    res.json({ success: true, status: 'human_active', transferredTo: toHumanId });
+  });
+
+  /**
+   * @swagger
+   * /api/conversations/{id}/window:
+   *   get:
+   *     summary: Get service window status
+   *     tags: [Conversations]
+   */
+  router.get('/:id/window', async (req: Request, res: Response) => {
+    const id = param(req, 'id');
+    const conversation = convManager.getConversation(id);
+    if (!conversation) {
+      throw new AppError('Conversation not found', 404, 'NOT_FOUND');
+    }
+
+    if (!serviceWindow) {
+      res.json({ isOpen: false, start: null, expires: null, remainingSeconds: 0, entryPoint: 'organic' });
+      return;
+    }
+
+    const status = await serviceWindow.isWindowOpen(id);
+    res.json(status);
   });
 
   return router;

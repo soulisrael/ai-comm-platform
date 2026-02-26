@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError } from './error-handler';
 
-const EXEMPT_PATHS = ['/health', '/api/docs', '/api/webhooks'];
+const EXEMPT_PATHS = ['/health', '/api/docs', '/api/webhooks', '/api/team/login'];
 
 export function authMiddleware(req: Request, _res: Response, next: NextFunction): void {
   // Skip auth for exempt paths
