@@ -157,9 +157,13 @@ function ConnectionTab({
   }, [handleMessage]);
 
   const handleEmbeddedSignup = () => {
+    if (!metaConfig?.appId || !metaConfig?.configId) {
+      toast.error('יש להגדיר META_APP_ID ו-META_CONFIG_ID בהגדרות השרת');
+      return;
+    }
     const FB = (window as any).FB;
-    if (!FB || !metaConfig?.configId) {
-      toast.error('Facebook SDK לא נטען');
+    if (!FB) {
+      toast.error('Facebook SDK עדיין נטען, נסה שוב');
       return;
     }
     setConnecting(true);
@@ -363,7 +367,7 @@ function ConnectionTab({
 
         <button
           onClick={handleEmbeddedSignup}
-          disabled={!sdkReady || connecting || exchangeToken.isPending}
+          disabled={connecting || exchangeToken.isPending}
           className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-medium rounded-xl hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
         >
           {connecting || exchangeToken.isPending ? (
