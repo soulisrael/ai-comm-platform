@@ -332,7 +332,7 @@ INSERT INTO agent_brain (agent_id, title, content, category, metadata, sort_orde
 -- ── Team Seed: Admin ─────────────────────────────────────────────────────────
 
 INSERT INTO team_members (email, name, role, password_hash) VALUES
-('admin@funkids.co.il', 'מנהל המערכת', 'admin', crypt('admin123', gen_salt('bf')))
+('admin@funkids.co.il', 'מנהל המערכת', 'admin', extensions.crypt('admin123', extensions.gen_salt('bf')))
 ON CONFLICT (email) DO NOTHING;
 
 -- ── Flow Seed: Welcome ───────────────────────────────────────────────────────
