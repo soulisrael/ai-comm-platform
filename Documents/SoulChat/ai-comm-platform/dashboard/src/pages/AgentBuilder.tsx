@@ -31,16 +31,16 @@ import {
   Hash,
   Upload,
   FileUp,
-  Brain,
   Edit3,
-  GripVertical,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import { SearchInput } from '../components/SearchInput';
 import { LoadingSpinner, PageLoading } from '../components/LoadingSpinner';
 import { EmptyState } from '../components/EmptyState';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { CategoryBadge } from '../components/CategoryBadge';
+import { TagInput } from '../components/TagInput';
+import { MetadataEditor } from '../components/MetadataEditor';
+import { JsonEditor } from '../components/JsonEditor';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -910,6 +910,9 @@ function BrainTab({ agentId }: { agentId: string }) {
   const actions = useBrainActions(agentId);
   const [editingEntry, setEditingEntry] = useState<BrainEntry | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [showJsonImport, setShowJsonImport] = useState(false);
+  const [jsonImportValue, setJsonImportValue] = useState('');
+  const [jsonImportError, setJsonImportError] = useState('');
 
   const entries = brainData?.entries ?? [];
 
@@ -949,6 +952,58 @@ function BrainTab({ agentId }: { agentId: string }) {
     await handleUpdate(entry.id, { active: !entry.active });
   };
 
+  const handleExportJson = () => {
+    const exportData = entries.map(({ title, content, category, metadata, active, sortOrder }) => ({
+      title,
+      content,
+      category,
+      metadata,
+      active,
+      sortOrder,
+    }));
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brain-entries-${agentId.slice(0, 8)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('ייצוא הושלם');
+  };
+
+  const handleImportJson = async () => {
+    setJsonImportError('');
+    try {
+      const parsed = JSON.parse(jsonImportValue);
+      if (!Array.isArray(parsed)) {
+        setJsonImportError('JSON חייב להיות מערך של פריטי ידע');
+        return;
+      }
+      for (const item of parsed) {
+        if (!item.title || !item.content) {
+          setJsonImportError('כל פריט חייב לכלול title ו-content');
+          return;
+        }
+      }
+      let imported = 0;
+      for (const item of parsed) {
+        await actions.create.mutateAsync({
+          title: item.title,
+          content: item.content,
+          category: item.category ?? 'general',
+          metadata: item.metadata ?? {},
+          sortOrder: entries.length + imported,
+        });
+        imported++;
+      }
+      setShowJsonImport(false);
+      setJsonImportValue('');
+      toast.success(`${imported} פריטי ידע יובאו בהצלחה`);
+    } catch {
+      setJsonImportError('JSON לא תקין');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -964,14 +1019,63 @@ function BrainTab({ agentId }: { agentId: string }) {
           <h2 className="text-sm font-semibold text-gray-700">
             בסיס הידע של הסוכן ({entries.length} פריטים)
           </h2>
-          <button
-            onClick={() => { setIsCreating(true); setEditingEntry(null); }}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-primary-600 bg-primary-50 rounded-lg hover:bg-primary-100 transition-colors"
-          >
-            <Plus size={12} />
-            פריט ידע חדש
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportJson}
+              disabled={entries.length === 0}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
+            >
+              <Upload size={12} />
+              ייצוא JSON
+            </button>
+            <button
+              onClick={() => setShowJsonImport(!showJsonImport)}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <FileUp size={12} />
+              ייבוא JSON
+            </button>
+            <button
+              onClick={() => { setIsCreating(true); setEditingEntry(null); }}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-primary-600 bg-primary-50 rounded-lg hover:bg-primary-100 transition-colors"
+            >
+              <Plus size={12} />
+              פריט ידע חדש
+            </button>
+          </div>
         </div>
+
+        {/* JSON Import panel */}
+        {showJsonImport && (
+          <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
+            <h3 className="text-xs font-semibold text-gray-700">ייבוא פריטי ידע מ-JSON</h3>
+            <JsonEditor
+              value={jsonImportValue}
+              onChange={(v) => { setJsonImportValue(v); setJsonImportError(''); }}
+              error={jsonImportError}
+              label=""
+            />
+            <p className="text-[10px] text-gray-400">
+              פורמט: מערך JSON של אובייקטים עם title, content, category (אופציונלי), metadata (אופציונלי)
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleImportJson}
+                disabled={!jsonImportValue.trim() || actions.create.isPending}
+                className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              >
+                <FileUp size={14} />
+                {actions.create.isPending ? 'מייבא...' : 'ייבא'}
+              </button>
+              <button
+                onClick={() => { setShowJsonImport(false); setJsonImportValue(''); setJsonImportError(''); }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Create / Edit form */}
         {(isCreating || editingEntry) && (
@@ -1012,9 +1116,7 @@ function BrainTab({ agentId }: { agentId: string }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <p className="text-sm font-medium text-gray-900">{entry.title}</p>
-                      <span className="text-[10px] px-1.5 py-0.5 bg-primary-50 text-primary-600 rounded">
-                        {BRAIN_CATEGORIES.find(c => c.value === entry.category)?.label || entry.category}
-                      </span>
+                      <CategoryBadge category={entry.category} />
                       {!entry.active && (
                         <span className="text-[10px] px-1.5 py-0.5 bg-gray-200 text-gray-500 rounded">
                           לא פעיל
@@ -1088,10 +1190,8 @@ function BrainEntryForm({
   const [title, setTitle] = useState(entry?.title ?? '');
   const [content, setContent] = useState(entry?.content ?? '');
   const [category, setCategory] = useState(entry?.category ?? 'general');
-  const [metadataText, setMetadataText] = useState(
-    entry?.metadata && Object.keys(entry.metadata).length > 0
-      ? Object.entries(entry.metadata).map(([k, v]) => `${k}: ${v}`).join('\n')
-      : ''
+  const [metadata, setMetadata] = useState<Record<string, unknown>>(
+    entry?.metadata && Object.keys(entry.metadata).length > 0 ? { ...entry.metadata } : {},
   );
 
   const handleSubmit = () => {
@@ -1100,20 +1200,7 @@ function BrainEntryForm({
       return;
     }
 
-    // Parse metadata from key: value lines
-    const metadata: Record<string, any> = {};
-    if (metadataText.trim()) {
-      for (const line of metadataText.split('\n')) {
-        const idx = line.indexOf(':');
-        if (idx > 0) {
-          const key = line.slice(0, idx).trim();
-          const value = line.slice(idx + 1).trim();
-          if (key) metadata[key] = value;
-        }
-      }
-    }
-
-    onSave({ title: title.trim(), content: content.trim(), category, metadata });
+    onSave({ title: title.trim(), content: content.trim(), category, metadata: metadata as Record<string, any> });
   };
 
   return (
@@ -1159,17 +1246,8 @@ function BrainEntryForm({
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">
-          מטה-דאטה (שורה לכל ערך, בפורמט: מפתח: ערך)
-        </label>
-        <textarea
-          value={metadataText}
-          onChange={(e) => setMetadataText(e.target.value)}
-          rows={3}
-          placeholder={`price: 350 ש"ח/חודש\nschedule: ימי ראשון ורביעי 16:00-17:00\nages: 4-10`}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-y font-mono text-xs"
-          dir="ltr"
-        />
+        <label className="block text-xs font-medium text-gray-500 mb-1">מטה-דאטה</label>
+        <MetadataEditor metadata={metadata} onChange={setMetadata} />
       </div>
 
       <div className="flex items-center gap-2 pt-1">
@@ -1203,77 +1281,19 @@ function RoutingTab({
   form: FormState;
   updateField: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
 }) {
-  const [keywordInput, setKeywordInput] = useState('');
-
-  const addKeyword = () => {
-    const kw = keywordInput.trim();
-    if (!kw) return;
-    if (form.routingKeywords.includes(kw)) {
-      toast.error('מילת מפתח כבר קיימת');
-      return;
-    }
-    updateField('routingKeywords', [...form.routingKeywords, kw]);
-    setKeywordInput('');
-  };
-
-  const removeKeyword = (kw: string) => {
-    updateField(
-      'routingKeywords',
-      form.routingKeywords.filter((k) => k !== kw),
-    );
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addKeyword();
-    }
-  };
-
   return (
     <div className="max-w-2xl space-y-4">
       <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
         <h2 className="text-sm font-semibold text-gray-700">מילות מפתח לניתוב</h2>
 
-        {/* Keyword input */}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={keywordInput}
-            onChange={(e) => setKeywordInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="הקלד מילת מפתח ולחץ Enter..."
-            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-          <button
-            onClick={addKeyword}
-            disabled={!keywordInput.trim()}
-            className="px-3 py-2 text-sm font-medium text-primary-600 bg-primary-50 rounded-lg hover:bg-primary-100 disabled:opacity-50"
-          >
-            הוסף
-          </button>
-        </div>
+        <TagInput
+          tags={form.routingKeywords}
+          onChange={(tags) => updateField('routingKeywords', tags)}
+          placeholder="הוסף מילת מפתח..."
+          duplicateMessage="מילת מפתח כבר קיימת"
+        />
 
-        {/* Keywords list */}
-        {form.routingKeywords.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {form.routingKeywords.map((kw) => (
-              <span
-                key={kw}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-primary-50 text-primary-700 rounded-lg"
-              >
-                <Tag size={10} />
-                {kw}
-                <button
-                  onClick={() => removeKeyword(kw)}
-                  className="mr-0.5 hover:text-red-500 transition-colors"
-                >
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
-          </div>
-        ) : (
+        {form.routingKeywords.length === 0 && (
           <p className="text-xs text-gray-400">אין מילות מפתח. הוסף מילים שיעזרו לנתב שיחות לסוכן זה.</p>
         )}
       </section>

@@ -1,6 +1,7 @@
-import { MessageSquare, Users, ArrowRightLeft, Clock } from 'lucide-react';
+import { MessageSquare, Users, ArrowRightLeft, Clock, Bot } from 'lucide-react';
 import { useAnalyticsOverview, useAnalyticsConversations } from '../hooks/useAnalytics';
 import { useConversations } from '../hooks/useConversations';
+import { useCustomAgents } from '../hooks/useCustomAgents';
 import { PageLoading } from '../components/LoadingSpinner';
 import { StatusBadge } from '../components/StatusBadge';
 import { ChannelIcon } from '../components/ChannelIcon';
@@ -14,6 +15,7 @@ export function Dashboard() {
   const { data: overview, isLoading: loadingOverview } = useAnalyticsOverview();
   const { data: volumeData } = useAnalyticsConversations('day');
   const { data: convData } = useConversations({ limit: 10 });
+  const { data: agentsData } = useCustomAgents({ active: true });
   const navigate = useNavigate();
 
   if (loadingOverview) return <PageLoading />;
@@ -56,6 +58,34 @@ export function Dashboard() {
           </div>
         ))}
       </div>
+
+      {/* Agent stats */}
+      {agentsData?.agents && agentsData.agents.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-gray-700 mb-3">סוכנים פעילים</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {agentsData.agents.map(agent => (
+              <button
+                key={agent.id}
+                onClick={() => navigate('/agents')}
+                className="bg-white rounded-xl border border-gray-200 p-4 text-right hover:border-primary-300 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center">
+                    <Bot size={18} className="text-indigo-600" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900 truncate">{agent.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {agent.brainEntryCount ?? 0} פריטי ידע
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

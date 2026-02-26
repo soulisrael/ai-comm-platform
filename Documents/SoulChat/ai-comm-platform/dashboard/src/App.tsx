@@ -5,7 +5,6 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
-import { Conversations } from './pages/Conversations';
 import { Contacts } from './pages/Contacts';
 import { HandoffQueue } from './pages/HandoffQueue';
 import { Analytics } from './pages/Analytics';
@@ -14,9 +13,28 @@ import { Flows } from './pages/Flows';
 import { Broadcasts } from './pages/Broadcasts';
 import { Templates } from './pages/Templates';
 import { AgentBuilder } from './pages/AgentBuilder';
+import { LiveChat } from './pages/LiveChat';
 // TopicManager removed — brain entries are managed per-agent in AgentBuilder
 import { LoadingSpinner } from './components/LoadingSpinner';
-import type { ReactNode } from 'react';
+import { Component, type ReactNode, type ErrorInfo } from 'react';
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('App crash:', error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, direction: 'ltr', fontFamily: 'monospace' }}>
+          <h1 style={{ color: 'red' }}>App Error</h1>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{this.state.error.message}</pre>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, color: '#666' }}>{this.state.error.stack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,6 +65,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
@@ -60,7 +79,8 @@ export default function App() {
               }
             >
               <Route index element={<Dashboard />} />
-              <Route path="conversations" element={<Conversations />} />
+              <Route path="chat" element={<LiveChat />} />
+              <Route path="conversations" element={<LiveChat />} />
               <Route path="contacts" element={<Contacts />} />
               <Route path="handoffs" element={<HandoffQueue />} />
               <Route path="analytics" element={<Analytics />} />
@@ -75,5 +95,6 @@ export default function App() {
         <Toaster position="top-right" />
       </AuthProvider>
     </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
