@@ -107,41 +107,48 @@ const PROMPT_TEMPLATES: { label: string; content: string }[] = [
 - היה ידידותי ומקצועי
 - הדגש את היתרונות של המוצר
 - ענה על התנגדויות בצורה חיובית
-- הצע תמיד צעד הבא ברור
+- הצע תמיד צעד הבא ברור (שיחת ייעוץ, הרשמה, תשלום)
+- השתמש בשפת תועלת — לא מה המוצר אלא מה הוא נותן ללקוח
 - פנה ללקוח בשמו: {contactName}
 - ערוץ תקשורת: {channel}`,
   },
   {
-    label: 'תמיכה',
-    content: `אתה סוכן תמיכה טכנית של {companyName}. תפקידך לעזור ללקוחות לפתור בעיות, לענות על שאלות טכניות, ולהבטיח שביעות רצון.
+    label: 'שירות לקוחות',
+    content: `אתה סוכן שירות לקוחות של {companyName}. תפקידך לעזור ללקוחות קיימים לפתור בעיות, לענות על שאלות, ולהבטיח שביעות רצון גבוהה.
 
 כללים:
 - הבן את הבעיה לעומק לפני שאתה מציע פתרון
-- תן הוראות צעד-אחר-צעד
+- תן הוראות צעד-אחר-צעד כשצריך
 - אם אינך יכול לפתור, העבר לנציג אנושי
+- הפגן אמפתיה ואכפתיות
+- עדכן את הלקוח לגבי סטטוס הטיפול
 - פנה ללקוח בשמו: {contactName}
 - ערוץ תקשורת: {channel}`,
   },
   {
-    label: 'שיעור ניסיון',
-    content: `אתה סוכן לתיאום שיעורי ניסיון ב-{companyName}. תפקידך לעזור ללקוחות לקבוע שיעור ניסיון, לספר על התוכניות, ולענות על שאלות.
+    label: 'סניף',
+    content: `אתה סוכן מידע של סניף {companyName}. תפקידך לתת מידע על הסניף, שעות פעילות, מיקום, שירותים, ולעזור ללקוחות להגיע ולקבוע פגישות.
 
 כללים:
-- הצע מועדים זמינים
-- הסבר מה כולל שיעור הניסיון
-- אסוף פרטי קשר
-- שלח אישור לאחר קביעת מועד
+- ספק מידע מדויק על שעות פתיחה, כתובת והגעה
+- הצע מועדים זמינים לפגישות
+- הסבר על השירותים הזמינים בסניף
+- אם יש מבצעים או אירועים בסניף, ציין אותם
+- אסוף פרטי קשר בעת קביעת פגישה
 - פנה ללקוח בשמו: {contactName}
 - ערוץ תקשורת: {channel}`,
   },
   {
-    label: 'כללי',
-    content: `אתה סוכן AI של {companyName}. תפקידך לעזור ללקוחות ולענות על שאלותיהם.
+    label: 'מקבל פניות',
+    content: `אתה סוכן קבלת פניות של {companyName}. תפקידך לקבל פניות מלקוחות, להבין את הצורך שלהם, לאסוף פרטים, ולהעביר את הפנייה לגורם המתאים.
 
 כללים:
-- היה ידידותי ומועיל
-- ענה בצורה ברורה ותמציתית
-- אם אינך יודע את התשובה, אמור זאת בכנות
+- שאל שאלות ממוקדות כדי להבין את הפנייה
+- אסוף שם, טלפון ואימייל של הפונה
+- סווג את הפנייה (מכירות, תמיכה, כללי, תלונה)
+- ספק ללקוח אישור שהפנייה התקבלה ומספר פנייה אם זמין
+- ציין זמני טיפול צפויים
+- אם הפנייה דחופה, העבר מיד לנציג אנושי
 - פנה ללקוח בשמו: {contactName}
 - ערוץ תקשורת: {channel}`,
   },
@@ -913,6 +920,7 @@ function BrainTab({ agentId }: { agentId: string }) {
   const [showJsonImport, setShowJsonImport] = useState(false);
   const [jsonImportValue, setJsonImportValue] = useState('');
   const [jsonImportError, setJsonImportError] = useState('');
+  const brainFileInputRef = useRef<HTMLInputElement>(null);
 
   const entries = brainData?.entries ?? [];
 
@@ -1004,6 +1012,37 @@ function BrainTab({ agentId }: { agentId: string }) {
     }
   };
 
+  const handleImportFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed)) {
+        toast.error('JSON חייב להיות מערך של פריטי ידע');
+        return;
+      }
+      for (const item of parsed) {
+        if (!item.title || !item.content) {
+          toast.error('כל פריט חייב לכלול title ו-content');
+          return;
+        }
+      }
+      let imported = 0;
+      for (const item of parsed) {
+        await actions.create.mutateAsync({
+          title: item.title,
+          content: item.content,
+          category: item.category ?? 'general',
+          metadata: item.metadata ?? {},
+          sortOrder: entries.length + imported,
+        });
+        imported++;
+      }
+      toast.success(`${imported} פריטי ידע יובאו מקובץ בהצלחה`);
+    } catch {
+      toast.error('שגיאה בקריאת קובץ JSON');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -1029,11 +1068,29 @@ function BrainTab({ agentId }: { agentId: string }) {
               ייצוא JSON
             </button>
             <button
-              onClick={() => setShowJsonImport(!showJsonImport)}
+              onClick={() => brainFileInputRef.current?.click()}
               className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <FileUp size={12} />
               ייבוא JSON
+            </button>
+            <input
+              ref={brainFileInputRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportFile(file);
+                e.target.value = '';
+              }}
+            />
+            <button
+              onClick={() => setShowJsonImport(!showJsonImport)}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <Edit3 size={12} />
+              ייבוא ידני
             </button>
             <button
               onClick={() => { setIsCreating(true); setEditingEntry(null); }}

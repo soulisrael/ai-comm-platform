@@ -3,6 +3,7 @@ const API_URL = import.meta.env.VITE_API_URL || '';
 class ApiClient {
   private baseUrl: string;
   private apiKey: string | null = null;
+  private authToken: string | null = null;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
@@ -12,11 +13,19 @@ class ApiClient {
     this.apiKey = key;
   }
 
+  setAuthToken(token: string | null) {
+    this.authToken = token;
+  }
+
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string> || {}),
     };
+
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`;
+    }
 
     if (this.apiKey) {
       headers['x-api-key'] = this.apiKey;
@@ -59,6 +68,9 @@ class ApiClient {
 
   async postFormData<T>(path: string, formData: FormData): Promise<T> {
     const headers: Record<string, string> = {};
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`;
+    }
     if (this.apiKey) {
       headers['x-api-key'] = this.apiKey;
     }

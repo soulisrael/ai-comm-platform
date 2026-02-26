@@ -12,7 +12,8 @@ const agentConfig: Record<string, { label: string; className: string }> = {
 export function AgentBadge({ agent, customAgentName }: { agent: AgentType | string | null; customAgentName?: string }) {
   if (customAgentName) {
     return (
-      <span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-700')}>
+      <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-700')}>
+        <span aria-hidden="true">🤖</span>
         {customAgentName}
       </span>
     );
@@ -21,7 +22,8 @@ export function AgentBadge({ agent, customAgentName }: { agent: AgentType | stri
   if (!agent) return null;
   const config = agentConfig[agent] || { label: agent, className: 'bg-gray-100 text-gray-600' };
   return (
-    <span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium', config.className)}>
+    <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium', config.className)}>
+      <span aria-hidden="true">🤖</span>
       {config.label}
     </span>
   );

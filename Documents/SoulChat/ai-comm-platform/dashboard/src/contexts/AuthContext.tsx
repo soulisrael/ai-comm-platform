@@ -1,68 +1,80 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
-import type { Session, User } from '@supabase/supabase-js';
+import { api } from '../lib/api-client';
+import type { TeamMember } from '../lib/types';
+
+const TOKEN_KEY = 'auth_token';
+
+interface AuthUser {
+  id: string;
+  email: string;
+}
 
 interface AuthState {
-  user: User | null;
-  session: Session | null;
+  user: AuthUser | null;
+  teamMember: TeamMember | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [teamMember, setTeamMember] = useState<TeamMember | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!supabase) {
-      // No Supabase configured — auto-login as demo user
-      setUser({ id: 'demo', email: 'admin@demo.local' } as User);
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      // No token — auto-login as demo user when no API is configured
+      setUser({ id: 'demo', email: 'admin@demo.local' });
       setLoading(false);
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
+    // Validate stored token
+    api.setAuthToken(token);
+    api.get<{ member: TeamMember }>('/api/team/me')
+      .then(({ member }) => {
+        setUser({ id: member.id, email: member.email });
+        setTeamMember(member);
+        setLoading(false);
+      })
+      .catch(() => {
+        // Token invalid — clear and fall back to demo
+        localStorage.removeItem(TOKEN_KEY);
+        api.setAuthToken(null);
+        setUser({ id: 'demo', email: 'admin@demo.local' });
+        setLoading(false);
+      });
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    if (!supabase) return;
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-  };
-
-  const signUp = async (email: string, password: string) => {
-    if (!supabase) return;
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) throw error;
+    const res = await api.post<{ token: string; member: TeamMember }>('/api/team/login', { email, password });
+    localStorage.setItem(TOKEN_KEY, res.token);
+    api.setAuthToken(res.token);
+    setUser({ id: res.member.id, email: res.member.email });
+    setTeamMember(res.member);
   };
 
   const signOut = async () => {
-    if (!supabase) {
-      setUser(null);
-      setSession(null);
-      return;
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      try {
+        await api.post('/api/team/logout');
+      } catch {
+        // Ignore logout API errors
+      }
     }
-    await supabase.auth.signOut();
+    localStorage.removeItem(TOKEN_KEY);
+    api.setAuthToken(null);
+    setUser(null);
+    setTeamMember(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, teamMember, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

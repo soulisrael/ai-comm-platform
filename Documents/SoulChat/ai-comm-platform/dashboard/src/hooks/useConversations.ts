@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api-client';
-import type { Conversation, ConversationStatus } from '../lib/types';
+import type { Conversation, ConversationStatus, WindowStatus } from '../lib/types';
 
 interface ConversationsResponse {
   conversations: Conversation[];
@@ -84,5 +84,20 @@ export function useConversationActions() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
   });
 
-  return { handoff, takeover, pause, resume, close, switchAgent, transferToAgent, reply, reopen };
+  const transferToHuman = useMutation({
+    mutationFn: ({ id, toHumanId, note }: { id: string; toHumanId: string; note?: string }) =>
+      api.post(`/api/conversations/${id}/transfer-to-human`, { toHumanId, note }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+  });
+
+  return { handoff, takeover, pause, resume, close, switchAgent, transferToAgent, reply, reopen, transferToHuman };
+}
+
+export function useConversationWindow(id: string | null) {
+  return useQuery({
+    queryKey: ['conversation-window', id],
+    queryFn: () => api.get<WindowStatus>(`/api/conversations/${id}/window`),
+    enabled: !!id,
+    refetchInterval: 30000,
+  });
 }

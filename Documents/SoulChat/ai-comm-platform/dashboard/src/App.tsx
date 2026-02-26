@@ -14,6 +14,8 @@ import { Broadcasts } from './pages/Broadcasts';
 import { Templates } from './pages/Templates';
 import { AgentBuilder } from './pages/AgentBuilder';
 import { LiveChat } from './pages/LiveChat';
+import { Team } from './pages/Team';
+import { WhatsApp } from './pages/WhatsApp';
 // TopicManager removed — brain entries are managed per-agent in AgentBuilder
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { Component, type ReactNode, type ErrorInfo } from 'react';
@@ -86,6 +88,8 @@ export default function App() {
               <Route path="analytics" element={<Analytics />} />
               <Route path="agents" element={<AgentBuilder />} />
               <Route path="flows" element={<Flows />} />
+              <Route path="team" element={<Team />} />
+              <Route path="whatsapp" element={<WhatsApp />} />
               <Route path="broadcasts" element={<Broadcasts />} />
               <Route path="templates" element={<Templates />} />
               <Route path="settings" element={<Settings />} />

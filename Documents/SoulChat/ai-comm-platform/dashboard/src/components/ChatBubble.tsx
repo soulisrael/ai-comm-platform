@@ -20,13 +20,13 @@ export function ChatBubble({ message }: { message: Message }) {
     );
   }
 
-  // Internal note: yellow background with label
+  // Internal note: yellow background with lock icon prefix
   if (isInternalNote) {
     return (
       <div className="flex justify-center mb-3">
         <div className="max-w-[80%]">
           <div className="rounded-lg px-3 py-2 text-sm bg-yellow-100 text-yellow-900 border border-yellow-200">
-            <div className="text-xs font-medium text-yellow-700 mb-1">&#x1F4DD; הערה פנימית</div>
+            <div className="text-xs font-medium text-yellow-700 mb-1">&#x1F512; הערה פנימית</div>
             {message.content}
           </div>
           <div className="flex items-center justify-center gap-1 mt-0.5 text-xs text-gray-400">

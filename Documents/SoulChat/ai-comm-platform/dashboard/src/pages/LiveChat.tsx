@@ -77,6 +77,15 @@ export function LiveChat() {
   const [showSwitchAgent, setShowSwitchAgent] = useState(false);
   const switchAgentRef = useRef<HTMLDivElement>(null);
 
+  // Transfer-to-human dropdown
+  const [showTransferHuman, setShowTransferHuman] = useState(false);
+  const [availableMembers, setAvailableMembers] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const transferHumanRef = useRef<HTMLDivElement>(null);
+
+  // Service window state
+  const [serviceWindow, setServiceWindow] = useState<{ isOpen: boolean; remainingSeconds: number; entryPoint?: string } | null>(null);
+
   // Custom agents
   const { data: customAgentsData } = useCustomAgents({ active: true });
   const customAgents = customAgentsData?.agents || [];
@@ -113,16 +122,39 @@ export function LiveChat() {
     demoEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [demoMessages.length]);
 
-  // Close switch-agent dropdown on outside click
+  // Close switch-agent and transfer-human dropdowns on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (switchAgentRef.current && !switchAgentRef.current.contains(e.target as Node)) {
         setShowSwitchAgent(false);
       }
+      if (transferHumanRef.current && !transferHumanRef.current.contains(e.target as Node)) {
+        setShowTransferHuman(false);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Fetch service window status for WhatsApp conversations
+  useEffect(() => {
+    if (!selectedId || demoMode) {
+      setServiceWindow(null);
+      return;
+    }
+    // Only fetch for WhatsApp channel
+    if (activeConv?.channel !== 'whatsapp') {
+      setServiceWindow(null);
+      return;
+    }
+    let cancelled = false;
+    api.get<{ isOpen: boolean; remainingSeconds: number; entryPoint?: string }>(
+      `/api/conversations/${selectedId}/window`
+    )
+      .then(data => { if (!cancelled) setServiceWindow(data); })
+      .catch(() => { if (!cancelled) setServiceWindow(null); });
+    return () => { cancelled = true; };
+  }, [selectedId, demoMode, activeConv?.channel]);
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -237,6 +269,34 @@ export function LiveChat() {
       await actions.handoff.mutateAsync({ id: selectedId, reason: 'manual handoff' });
       toast.success('השיחה הועברה לנציג');
     } catch { toast.error('שגיאה בהעברה לנציג'); }
+  };
+
+  const handleToggleTransferHuman = async () => {
+    if (showTransferHuman) {
+      setShowTransferHuman(false);
+      return;
+    }
+    setShowTransferHuman(true);
+    setLoadingMembers(true);
+    try {
+      const res = await api.get<{ members: { id: string; name: string; role: string }[] }>('/api/team/members/available');
+      setAvailableMembers(res.members);
+    } catch {
+      setAvailableMembers([]);
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  const handleTransferToHuman = async (toHumanId: string) => {
+    if (!selectedId) return;
+    setShowTransferHuman(false);
+    try {
+      await api.post(`/api/conversations/${selectedId}/transfer-to-human`, { toHumanId });
+      toast.success('השיחה הועברה לנציג');
+    } catch {
+      toast.error('שגיאה בהעברת השיחה');
+    }
   };
 
   const handleSwitchAgent = async (customAgentId: string) => {
@@ -401,6 +461,13 @@ export function LiveChat() {
               onReopen={handleReopen}
               onHandoff={handleHandoff}
               onSwitchAgent={handleSwitchAgent}
+              serviceWindow={serviceWindow}
+              showTransferHuman={showTransferHuman}
+              transferHumanRef={transferHumanRef}
+              availableMembers={availableMembers}
+              loadingMembers={loadingMembers}
+              onToggleTransferHuman={handleToggleTransferHuman}
+              onTransferToHuman={handleTransferToHuman}
             />
 
             {/* Messages */}
@@ -587,6 +654,13 @@ function ChatToolbar({
   onReopen,
   onHandoff,
   onSwitchAgent,
+  serviceWindow,
+  showTransferHuman,
+  transferHumanRef,
+  availableMembers,
+  loadingMembers,
+  onToggleTransferHuman,
+  onTransferToHuman,
 }: {
   conversation: Conversation;
   customAgentName?: string;
@@ -601,6 +675,13 @@ function ChatToolbar({
   onReopen: () => void;
   onHandoff: () => void;
   onSwitchAgent: (id: string) => void;
+  serviceWindow: { isOpen: boolean; remainingSeconds: number; entryPoint?: string } | null;
+  showTransferHuman: boolean;
+  transferHumanRef: React.RefObject<HTMLDivElement | null>;
+  availableMembers: { id: string; name: string; role: string }[];
+  loadingMembers: boolean;
+  onToggleTransferHuman: () => void;
+  onTransferToHuman: (toHumanId: string) => void;
 }) {
   const status = conversation.status;
 
@@ -608,6 +689,20 @@ function ChatToolbar({
     <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200 flex-wrap">
       <StatusBadge status={status} />
       <AgentBadge agent={conversation.currentAgent} customAgentName={customAgentName} />
+
+      {/* Service window indicator (WhatsApp only) */}
+      {conversation.channel === 'whatsapp' && serviceWindow && (
+        serviceWindow.isOpen ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 rounded-full px-2.5 py-1">
+            &#x23F0; חלון פתוח
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 rounded-full px-2.5 py-1">
+            &#x26A0;&#xFE0F; חלון סגור — templates בלבד
+          </span>
+        )
+      )}
+
       <div className="flex-1" />
 
       {/* Reopen (closed) */}
@@ -660,6 +755,38 @@ function ChatToolbar({
       {/* Handoff to human (not closed, not human_active) */}
       {status !== 'closed' && status !== 'human_active' && status !== 'handoff' && (
         <ToolbarButton onClick={onHandoff} icon={<ArrowUpRight size={14} />} label="העבר לנציג" variant="gray" />
+      )}
+
+      {/* Transfer to specific human agent */}
+      {status !== 'closed' && (
+        <div className="relative" ref={transferHumanRef}>
+          <button
+            onClick={onToggleTransferHuman}
+            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-orange-700 bg-orange-50 rounded-lg hover:bg-orange-100"
+          >
+            <ArrowUpRight size={14} /> העבר לנציג <ChevronDown size={12} />
+          </button>
+          {showTransferHuman && (
+            <div className="absolute end-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+              {loadingMembers ? (
+                <div className="px-3 py-2 text-sm text-gray-400">טוען נציגים...</div>
+              ) : availableMembers.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-gray-400">אין נציגים זמינים</div>
+              ) : (
+                availableMembers.map(member => (
+                  <button
+                    key={member.id}
+                    onClick={() => onTransferToHuman(member.id)}
+                    className="block w-full text-start px-3 py-2 text-sm hover:bg-orange-50 text-orange-700"
+                  >
+                    <span className="font-medium">{member.name}</span>
+                    <span className="text-xs text-gray-400 ms-1">({member.role})</span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Close (not closed) */}

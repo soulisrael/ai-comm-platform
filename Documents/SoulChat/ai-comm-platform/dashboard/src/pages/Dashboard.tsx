@@ -1,7 +1,8 @@
-import { MessageSquare, Users, ArrowRightLeft, Clock, Bot } from 'lucide-react';
+import { MessageSquare, Users, ArrowRightLeft, Clock, Bot, DollarSign } from 'lucide-react';
 import { useAnalyticsOverview, useAnalyticsConversations } from '../hooks/useAnalytics';
 import { useConversations } from '../hooks/useConversations';
 import { useCustomAgents } from '../hooks/useCustomAgents';
+import { useTodayCost } from '../hooks/useCosts';
 import { PageLoading } from '../components/LoadingSpinner';
 import { StatusBadge } from '../components/StatusBadge';
 import { ChannelIcon } from '../components/ChannelIcon';
@@ -16,6 +17,7 @@ export function Dashboard() {
   const { data: volumeData } = useAnalyticsConversations('day');
   const { data: convData } = useConversations({ limit: 10 });
   const { data: agentsData } = useCustomAgents({ active: true });
+  const { data: costData } = useTodayCost();
   const navigate = useNavigate();
 
   if (loadingOverview) return <PageLoading />;
@@ -58,6 +60,46 @@ export function Dashboard() {
           </div>
         ))}
       </div>
+
+      {/* Cost tracking card */}
+      {costData && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 className="text-sm font-medium text-gray-700 mb-3">עלות AI היום</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-amber-600 bg-amber-50">
+                <DollarSign size={20} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {'\u20AA'}{costData.estimatedCost.toFixed(2)}
+                </p>
+                <p className="text-xs text-gray-500">עלות משוערת</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-teal-600 bg-teal-50">
+                <span className="text-xs font-bold">%</span>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {(costData.cacheHitRate * 100).toFixed(0)}%
+                </p>
+                <p className="text-xs text-gray-500">Cache hit rate</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-indigo-600 bg-indigo-50">
+                <MessageSquare size={20} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{costData.totalCalls}</p>
+                <p className="text-xs text-gray-500">קריאות API</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Agent stats */}
       {agentsData?.agents && agentsData.agents.length > 0 && (

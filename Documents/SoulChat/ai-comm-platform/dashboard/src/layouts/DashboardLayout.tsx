@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
-  LayoutDashboard, MessageSquare, Users, ArrowRightLeft,
+  LayoutDashboard, MessageSquare, Users, UsersRound,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
-  Bot,
+  Bot, Zap, Smartphone,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,9 +12,11 @@ const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'ראשי' },
   { to: '/agents', icon: Bot, label: 'סוכנים' },
   { to: '/chat', icon: MessageSquare, label: 'צ׳אט חי' },
+  { to: '/flows', icon: Zap, label: 'אוטומציות' },
+  { to: '/team', icon: UsersRound, label: 'צוות' },
+  { to: '/whatsapp', icon: Smartphone, label: 'WhatsApp' },
   { to: '/contacts', icon: Users, label: 'אנשי קשר' },
   { to: '/analytics', icon: BarChart3, label: 'אנליטיקס' },
-  { to: '/handoffs', icon: ArrowRightLeft, label: 'תור המתנה' },
   { to: '/settings', icon: Settings, label: 'הגדרות' },
 ];
 

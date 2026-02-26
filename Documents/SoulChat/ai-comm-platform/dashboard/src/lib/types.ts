@@ -146,3 +146,102 @@ export interface Topic {
 export interface TopicWithAgents extends Topic {
   agents?: { id: string; name: string }[];
 }
+
+// Team types
+export type TeamRole = 'admin' | 'manager' | 'agent';
+export type TeamStatus = 'online' | 'away' | 'busy' | 'offline';
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  role: TeamRole;
+  status: TeamStatus;
+  maxConcurrentChats: number;
+  assignedAgents: string[];
+  skills: string[];
+  settings: Record<string, unknown>;
+  lastSeenAt: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Flow types
+export type FlowTriggerType = 'new_contact' | 'keyword' | 'webhook' | 'manual' | 'schedule' | 'message_received';
+export type FlowRunStatus = 'running' | 'completed' | 'failed' | 'paused' | 'cancelled';
+
+export interface Flow {
+  id: string;
+  name: string;
+  description: string | null;
+  triggerType: FlowTriggerType;
+  triggerConfig: Record<string, unknown>;
+  nodes: unknown[];
+  edges: unknown[];
+  active: boolean;
+  stats: { runs: number; success: number; failed: number };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FlowRun {
+  id: string;
+  flowId: string;
+  conversationId: string | null;
+  contactId: string | null;
+  status: FlowRunStatus;
+  currentNodeId: string | null;
+  context: Record<string, unknown>;
+  startedAt: string;
+  completedAt: string | null;
+  error: string | null;
+}
+
+// WhatsApp types
+export type WaConnectionStatus = 'connected' | 'disconnected' | 'error';
+
+export interface WaConfig {
+  id: string;
+  phoneNumberId: string;
+  wabaId: string;
+  accessToken: string;
+  verifyToken: string;
+  webhookUrl: string | null;
+  businessName: string | null;
+  status: WaConnectionStatus;
+  lastVerifiedAt: string | null;
+  settings: Record<string, unknown>;
+}
+
+export interface WaTemplate {
+  id: string;
+  templateName: string;
+  category: string;
+  language: string;
+  content: string;
+  header: Record<string, unknown> | null;
+  footer: string | null;
+  buttons: Record<string, unknown>[];
+  metaStatus: string;
+  metaTemplateId: string | null;
+}
+
+// Cost types
+export interface CostSummary {
+  totalCalls: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  estimatedCost: number;
+  cacheHitRate: number;
+}
+
+// Window status
+export interface WindowStatus {
+  isOpen: boolean;
+  start: string | null;
+  expires: string | null;
+  remainingSeconds: number;
+  entryPoint: string;
+}
