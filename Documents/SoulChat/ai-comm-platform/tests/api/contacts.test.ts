@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import path from 'path';
 import { createApp } from '../../src/api/server';
 import { ClaudeAPI } from '../../src/services/claude-api';
 
@@ -22,20 +21,21 @@ function createMockClaude(): ClaudeAPI {
 describe('Contacts API', () => {
   let app: Awaited<ReturnType<typeof createApp>>['app'];
   let contactId: string;
+  const uniqueUserId = `contact-test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   beforeEach(async () => {
-    const brainPath = path.resolve(__dirname, '../../brain');
-    const result = await createApp({ claude: createMockClaude(), brainPath, skipAuth: true });
+    const result = await createApp({ claude: createMockClaude(), skipAuth: true });
     app = result.app;
 
     // Create a contact by sending a message
-    const res = await request(app)
+    await request(app)
       .post('/api/messages/incoming')
-      .send({ channelUserId: 'contact-test-user', channel: 'web', content: 'Hello', senderName: 'Test Person' });
+      .send({ channelUserId: uniqueUserId, channel: 'web', content: 'Hello', senderName: 'Test Person' });
 
-    // Get contacts to find the ID
-    const contactsRes = await request(app).get('/api/contacts');
-    contactId = contactsRes.body.contacts[0].id;
+    // Get contacts and find the one we just created
+    const contactsRes = await request(app).get(`/api/contacts?search=Test Person`);
+    const match = contactsRes.body.contacts.find((c: any) => c.channelUserId === uniqueUserId);
+    contactId = match?.id || contactsRes.body.contacts[0].id;
   });
 
   describe('GET /api/contacts', () => {
