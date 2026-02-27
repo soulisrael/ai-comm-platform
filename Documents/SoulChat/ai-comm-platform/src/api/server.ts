@@ -281,6 +281,15 @@ export async function createApp(options?: {
   // Company settings route (stub — returns empty)
   app.use('/api/company', createCompanyRouter());
 
+  // Serve dashboard static files in production
+  if (process.env.NODE_ENV === 'production') {
+    const dashboardDist = path.join(__dirname, '..', '..', 'dashboard', 'dist');
+    app.use(express.static(dashboardDist));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(dashboardDist, 'index.html'));
+    });
+  }
+
   // Error handler (must be last)
   app.use(errorHandler);
 
