@@ -21,6 +21,7 @@ export type FlowNodeType =
   | 'wait_reply'
   | 'delay'
   | 'check_window'
+  | 'manual'
   // Backward-compat aliases
   | 'trigger'
   | 'close';
@@ -160,6 +161,7 @@ export const NODE_ACCENT_COLORS: Record<string, string> = {
   keyword: '#22c55e',
   webhook_trigger: '#22c55e',
   schedule: '#22c55e',
+  manual: '#22c55e',
   trigger: '#22c55e',
   // WhatsApp actions — green
   send_message: '#22c55e',
@@ -182,7 +184,7 @@ export const NODE_ACCENT_COLORS: Record<string, string> = {
 
 export const NODE_BG_COLORS: Record<string, string> = {
   message_received: 'bg-green-50', new_contact: 'bg-green-50', keyword: 'bg-green-50',
-  webhook_trigger: 'bg-green-50', schedule: 'bg-green-50', trigger: 'bg-green-50',
+  webhook_trigger: 'bg-green-50', schedule: 'bg-green-50', manual: 'bg-green-50', trigger: 'bg-green-50',
   ai_agent: 'bg-indigo-50',
   send_message: 'bg-white', send_template: 'bg-white',
   tag_update: 'bg-blue-50', http_request: 'bg-blue-50', transfer_agent: 'bg-blue-50',
@@ -193,7 +195,7 @@ export const NODE_BG_COLORS: Record<string, string> = {
 
 export const NODE_BORDER_COLORS: Record<string, string> = {
   message_received: 'border-green-400', new_contact: 'border-green-400', keyword: 'border-green-400',
-  webhook_trigger: 'border-green-400', schedule: 'border-green-400', trigger: 'border-green-400',
+  webhook_trigger: 'border-green-400', schedule: 'border-green-400', manual: 'border-green-400', trigger: 'border-green-400',
   ai_agent: 'border-indigo-400',
   send_message: 'border-green-400', send_template: 'border-green-400',
   tag_update: 'border-blue-400', http_request: 'border-blue-400', transfer_agent: 'border-blue-400',
@@ -228,12 +230,13 @@ export const TRIGGER_OPTIONS: TriggerOption[] = [
   { type: 'keyword', label: '\u05DE\u05D9\u05DC\u05EA \u05DE\u05E4\u05EA\u05D7', icon: '\u{1F524}', description: '\u05DB\u05E9\u05D4\u05D5\u05D3\u05E2\u05D4 \u05DE\u05DB\u05D9\u05DC\u05D4 \u05DE\u05D9\u05DC\u05D9\u05DD \u05DE\u05E1\u05D5\u05D9\u05DE\u05D5\u05EA' },
   { type: 'schedule', label: '\u05EA\u05D6\u05DE\u05D5\u05DF', icon: '\u{1F570}\uFE0F', description: '\u05D4\u05E4\u05E2\u05DC \u05D1\u05D6\u05DE\u05DF \u05E7\u05D1\u05D5\u05E2' },
   { type: 'webhook_trigger', label: 'Webhook', icon: '\u{1F517}', description: '\u05D4\u05E4\u05E2\u05DC \u05DE\u05E7\u05E8\u05D9\u05D0\u05EA API \u05D7\u05D9\u05E6\u05D5\u05E0\u05D9\u05EA' },
+  { type: 'manual', label: '\u05D9\u05D3\u05E0\u05D9', icon: '\u270B', description: '\u05D4\u05E4\u05E2\u05DC\u05D4 \u05D9\u05D3\u05E0\u05D9\u05EA \u05E2\u05DC \u05D9\u05D3\u05D9 \u05E0\u05E6\u05D9\u05D2' },
 ];
 
 /* ─────────────────────── Trigger Types Set ─────────────────────── */
 
 const TRIGGER_TYPES: Set<FlowNodeType> = new Set([
-  'message_received', 'new_contact', 'keyword', 'webhook_trigger', 'schedule', 'trigger',
+  'message_received', 'new_contact', 'keyword', 'webhook_trigger', 'schedule', 'manual', 'trigger',
 ]);
 
 export function isTriggerNode(type: FlowNodeType): boolean {

@@ -52,6 +52,7 @@ const nodeTypes: NodeTypes = {
   keyword: TriggerNode,
   webhook_trigger: TriggerNode,
   schedule: TriggerNode,
+  manual: TriggerNode,
   // WhatsApp
   send_message: MessageNode,
   send_template: ActionNode,
